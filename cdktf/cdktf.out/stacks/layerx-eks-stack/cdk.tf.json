@@ -1,0 +1,439 @@
+{
+  "//": {
+    "metadata": {
+      "backend": "local",
+      "stackName": "layerx-eks-stack",
+      "version": "0.21.0"
+    },
+    "outputs": {
+      "layerx-eks-stack": {
+        "cluster_ca_certificate": "cluster_ca_certificate",
+        "cluster_endpoint": "cluster_endpoint",
+        "cluster_name": "cluster_name",
+        "kubeconfig_command": "kubeconfig_command"
+      }
+    }
+  },
+  "data": {
+    "aws_availability_zones": {
+      "vpc_available_59531BA6": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/available",
+            "uniqueId": "vpc_available_59531BA6"
+          }
+        },
+        "state": "available"
+      }
+    },
+    "aws_caller_identity": {
+      "current": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/current",
+            "uniqueId": "current"
+          }
+        }
+      }
+    },
+    "aws_region": {
+      "vpc_current_561DBC69": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/current",
+            "uniqueId": "vpc_current_561DBC69"
+          }
+        }
+      }
+    }
+  },
+  "output": {
+    "cluster_ca_certificate": {
+      "description": "The certificate authority data for the cluster (base64 encoded)",
+      "sensitive": true,
+      "value": "${aws_eks_cluster.eksCluster.certificate_authority[0].data}"
+    },
+    "cluster_endpoint": {
+      "description": "The endpoint for the EKS cluster API server",
+      "value": "${aws_eks_cluster.eksCluster.endpoint}"
+    },
+    "cluster_name": {
+      "description": "The name of the EKS cluster",
+      "value": "${aws_eks_cluster.eksCluster.name}"
+    },
+    "kubeconfig_command": {
+      "description": "Command to configure kubectl for the cluster",
+      "value": "aws eks update-kubeconfig --name ${aws_eks_cluster.eksCluster.name} --region $(aws configure get region)"
+    }
+  },
+  "provider": {
+    "aws": [
+      {
+      }
+    ],
+    "kubernetes": [
+      {
+        "cluster_ca_certificate": "${base64decode(aws_eks_cluster.eksCluster.certificate_authority[0].data)}",
+        "host": "${aws_eks_cluster.eksCluster.endpoint}"
+      }
+    ]
+  },
+  "resource": {
+    "aws_eks_addon": {
+      "aws-ebs-csi-driver": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/aws-ebs-csi-driver",
+            "uniqueId": "aws-ebs-csi-driver"
+          }
+        },
+        "addon_name": "aws-ebs-csi-driver",
+        "addon_version": "v1.44.0-eksbuild.1",
+        "cluster_name": "${aws_eks_cluster.eksCluster.name}",
+        "resolve_conflicts_on_create": "OVERWRITE",
+        "resolve_conflicts_on_update": "PRESERVE",
+        "service_account_role_arn": "${aws_iam_role.ebsCsiDriverRole.arn}"
+      },
+      "vpc-cni": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc-cni",
+            "uniqueId": "vpc-cni"
+          }
+        },
+        "addon_name": "vpc-cni",
+        "addon_version": "v1.19.5-eksbuild.3",
+        "cluster_name": "${aws_eks_cluster.eksCluster.name}",
+        "resolve_conflicts_on_create": "OVERWRITE",
+        "resolve_conflicts_on_update": "PRESERVE"
+      }
+    },
+    "aws_eks_cluster": {
+      "eksCluster": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/eksCluster",
+            "uniqueId": "eksCluster"
+          }
+        },
+        "access_config": {
+          "authentication_mode": "API_AND_CONFIG_MAP"
+        },
+        "bootstrap_self_managed_addons": false,
+        "compute_config": {
+          "enabled": false
+        },
+        "kubernetes_network_config": {
+          "elastic_load_balancing": {
+            "enabled": false
+          },
+          "service_ipv4_cidr": "10.100.0.0/16"
+        },
+        "name": "layerx-eks",
+        "role_arn": "${aws_iam_role.eksRole.arn}",
+        "storage_config": {
+          "block_storage": {
+            "enabled": false
+          }
+        },
+        "version": "1.31",
+        "vpc_config": {
+          "endpoint_private_access": false,
+          "endpoint_public_access": true,
+          "public_access_cidrs": [
+            "0.0.0.0/0"
+          ],
+          "subnet_ids": [
+            "${aws_subnet.vpc_public-subnet-1_B6E44E35.id}",
+            "${aws_subnet.vpc_public-subnet-2_50BC5771.id}"
+          ]
+        }
+      }
+    },
+    "aws_eks_node_group": {
+      "eksNodeGroup": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/eksNodeGroup",
+            "uniqueId": "eksNodeGroup"
+          }
+        },
+        "ami_type": "AL2_x86_64",
+        "cluster_name": "${aws_eks_cluster.eksCluster.name}",
+        "depends_on": [
+          "aws_eks_cluster.eksCluster"
+        ],
+        "disk_size": 20,
+        "instance_types": [
+          "t3.micro"
+        ],
+        "node_role_arn": "${aws_iam_role.nodeRole.arn}",
+        "scaling_config": {
+          "desired_size": 3,
+          "max_size": 4,
+          "min_size": 2
+        },
+        "subnet_ids": [
+          "${aws_subnet.vpc_public-subnet-1_B6E44E35.id}",
+          "${aws_subnet.vpc_public-subnet-2_50BC5771.id}"
+        ],
+        "tags": {
+          "Name": "layerx-eks-node",
+          "kubernetes.io/cluster/layerx-eks": "owned"
+        },
+        "version": "${aws_eks_cluster.eksCluster.version}"
+      }
+    },
+    "aws_iam_role": {
+      "ebsCsiDriverRole": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/ebsCsiDriverRole",
+            "uniqueId": "ebsCsiDriverRole"
+          }
+        },
+        "assume_role_policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"eks.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}",
+        "name": "layerx-eks-ebs-csi-driver-role"
+      },
+      "eksRole": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/eksRole",
+            "uniqueId": "eksRole"
+          }
+        },
+        "assume_role_policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":\"sts:AssumeRole\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"eks.amazonaws.com\"}}]}",
+        "name": "layerx-eks-cluster-role"
+      },
+      "nodeRole": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/nodeRole",
+            "uniqueId": "nodeRole"
+          }
+        },
+        "assume_role_policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":\"sts:AssumeRole\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ec2.amazonaws.com\"}}]}",
+        "name": "layerx-eks-node-role"
+      }
+    },
+    "aws_iam_role_policy_attachment": {
+      "cniPolicy": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/cniPolicy",
+            "uniqueId": "cniPolicy"
+          }
+        },
+        "policy_arn": "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
+        "role": "${aws_iam_role.nodeRole.name}"
+      },
+      "ebsCsiDriverPolicyAttachment": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/ebsCsiDriverPolicyAttachment",
+            "uniqueId": "ebsCsiDriverPolicyAttachment"
+          }
+        },
+        "policy_arn": "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy",
+        "role": "${aws_iam_role.ebsCsiDriverRole.name}"
+      },
+      "eksServicePolicy": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/eksServicePolicy",
+            "uniqueId": "eksServicePolicy"
+          }
+        },
+        "policy_arn": "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
+        "role": "${aws_iam_role.eksRole.name}"
+      },
+      "nodePolicy": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/nodePolicy",
+            "uniqueId": "nodePolicy"
+          }
+        },
+        "policy_arn": "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
+        "role": "${aws_iam_role.nodeRole.name}"
+      },
+      "registryPolicy": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/registryPolicy",
+            "uniqueId": "registryPolicy"
+          }
+        },
+        "policy_arn": "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+        "role": "${aws_iam_role.nodeRole.name}"
+      },
+      "ssmPolicy": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/ssmPolicy",
+            "uniqueId": "ssmPolicy"
+          }
+        },
+        "policy_arn": "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+        "role": "${aws_iam_role.nodeRole.name}"
+      }
+    },
+    "aws_internet_gateway": {
+      "vpc_igw_E5E304CC": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/igw",
+            "uniqueId": "vpc_igw_E5E304CC"
+          }
+        },
+        "tags": {
+          "Name": "layerx-eks-igw"
+        },
+        "vpc_id": "${aws_vpc.vpc_6776A399.id}"
+      }
+    },
+    "aws_route": {
+      "vpc_public-route_F447845C": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/public-route",
+            "uniqueId": "vpc_public-route_F447845C"
+          }
+        },
+        "destination_cidr_block": "0.0.0.0/0",
+        "gateway_id": "${aws_internet_gateway.vpc_igw_E5E304CC.id}",
+        "route_table_id": "${aws_route_table.vpc_public-rtb_E3600128.id}"
+      }
+    },
+    "aws_route_table": {
+      "vpc_public-rtb_E3600128": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/public-rtb",
+            "uniqueId": "vpc_public-rtb_E3600128"
+          }
+        },
+        "tags": {
+          "Name": "layerx-eks-public-rtb"
+        },
+        "vpc_id": "${aws_vpc.vpc_6776A399.id}"
+      }
+    },
+    "aws_route_table_association": {
+      "vpc_public-rta-1_CA1395F4": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/public-rta-1",
+            "uniqueId": "vpc_public-rta-1_CA1395F4"
+          }
+        },
+        "route_table_id": "${aws_route_table.vpc_public-rtb_E3600128.id}",
+        "subnet_id": "${aws_subnet.vpc_public-subnet-1_B6E44E35.id}"
+      },
+      "vpc_public-rta-2_F1EC92DC": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/public-rta-2",
+            "uniqueId": "vpc_public-rta-2_F1EC92DC"
+          }
+        },
+        "route_table_id": "${aws_route_table.vpc_public-rtb_E3600128.id}",
+        "subnet_id": "${aws_subnet.vpc_public-subnet-2_50BC5771.id}"
+      }
+    },
+    "aws_subnet": {
+      "vpc_public-subnet-1_B6E44E35": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/public-subnet-1",
+            "uniqueId": "vpc_public-subnet-1_B6E44E35"
+          }
+        },
+        "availability_zone": "${data.aws_region.vpc_current_561DBC69.name}a",
+        "cidr_block": "10.0.0.0/20",
+        "map_public_ip_on_launch": true,
+        "tags": {
+          "Name": "layerx-eks-public-subnet-1",
+          "kubernetes.io/cluster/layerx-eks": "owned",
+          "kubernetes.io/role/elb": "1"
+        },
+        "vpc_id": "${aws_vpc.vpc_6776A399.id}"
+      },
+      "vpc_public-subnet-2_50BC5771": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/public-subnet-2",
+            "uniqueId": "vpc_public-subnet-2_50BC5771"
+          }
+        },
+        "availability_zone": "${data.aws_region.vpc_current_561DBC69.name}b",
+        "cidr_block": "10.0.16.0/20",
+        "map_public_ip_on_launch": true,
+        "tags": {
+          "Name": "layerx-eks-public-subnet-2",
+          "kubernetes.io/cluster/layerx-eks": "owned",
+          "kubernetes.io/role/elb": "1"
+        },
+        "vpc_id": "${aws_vpc.vpc_6776A399.id}"
+      }
+    },
+    "aws_vpc": {
+      "vpc_6776A399": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/vpc/vpc",
+            "uniqueId": "vpc_6776A399"
+          }
+        },
+        "cidr_block": "10.0.0.0/16",
+        "enable_dns_hostnames": true,
+        "enable_dns_support": true,
+        "tags": {
+          "Name": "layerx-eks-vpc",
+          "kubernetes.io/cluster/layerx-eks": "owned"
+        }
+      }
+    },
+    "kubernetes_namespace": {
+      "argocd-ns": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/argocd-ns",
+            "uniqueId": "argocd-ns"
+          }
+        },
+        "metadata": {
+          "name": "argocd"
+        }
+      },
+      "monitoring-ns": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/monitoring-ns",
+            "uniqueId": "monitoring-ns"
+          }
+        },
+        "metadata": {
+          "name": "monitoring"
+        }
+      }
+    }
+  },
+  "terraform": {
+    "backend": {
+      "local": {
+        "path": "/home/opsxe/Development/layerx-home-assignment/cdktf/terraform.layerx-eks-stack.tfstate"
+      }
+    },
+    "required_providers": {
+      "aws": {
+        "source": "aws",
+        "version": "5.99.1"
+      },
+      "kubernetes": {
+        "source": "kubernetes",
+        "version": "2.37.1"
+      }
+    }
+  }
+}
