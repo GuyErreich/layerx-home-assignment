@@ -4,6 +4,9 @@
  */
 
 export const Config = {
+  // AWS Region
+  region: "eu-central-1", // Change this to your preferred region
+  
   // Cluster configuration
   cluster: {
     name: "layerx-eks",
@@ -22,6 +25,8 @@ export const Config = {
     eksRoleName: "layerx-eks-cluster-role",
     nodeRoleName: "layerx-eks-node-role",
     ebsCsiDriverRoleName: "layerx-eks-ebs-csi-driver-role",
+    lbControllerRoleName: "layerx-eks-lb-controller-role",
+    adminRoleName: "layerx-eks-admin-role",
   },
   
   // Node group configuration

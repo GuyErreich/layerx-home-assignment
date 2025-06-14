@@ -1,11 +1,14 @@
 import { Construct } from "constructs";
-import { App, TerraformStack, TerraformOutput, S3Backend } from "cdktf";
-import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
+import { App, TerraformStack, TerraformOutput, S3Backend, TerraformResource } from "cdktf";
 import { VpcModule, VpcModuleOutput } from "./lib/vpc";
 import { createIamRoles, EksIamRoles } from "./lib/iam";
 import { createEks, EksResources } from "./lib/eks";
 import { createEksAddons, EksAddonsResources } from "./lib/eks-addons";
+import { deployArgoCD, ArgoCDResources } from "./lib/argocd";
+import { deployAwsLoadBalancerController, AwsLoadBalancerControllerResources } from "./lib/aws-load-balancer-controller";
 import { Config } from "./lib/config";
+import { DataAwsRegion } from "./.gen/providers/aws/data-aws-region";
+import { ProviderManager } from "./lib/providers";
 
 class LayerxEksStack extends TerraformStack {
   constructor(scope: Construct, id: string) {
@@ -21,8 +24,10 @@ class LayerxEksStack extends TerraformStack {
     //   profile: "default" // or your named AWS profile
     // });
 
-    // AWS Provider
-    new AwsProvider(this, "aws", {});
+    // AWS Provider - get from ProviderManager
+    const awsProvider = ProviderManager.getAwsProvider(this);
+    
+    const region = new DataAwsRegion(this, "current-region");
 
     // VPC & Subnets
     const vpcModule = new VpcModule(this, "vpc", {
@@ -51,32 +56,92 @@ class LayerxEksStack extends TerraformStack {
       iam.updateEbsCsiDriverRoleTrustPolicy(eks.cluster);
     }
 
-    // Install native EKS add-ons (EBS CSI Driver, VPC CNI)
+    // Update the Load Balancer Controller role trust policy with the proper OIDC provider
+    if (iam.updateLbControllerRoleTrustPolicy && iam.lbControllerRole) {
+      iam.updateLbControllerRoleTrustPolicy(eks.cluster);
+    }
+    
+    // Install native EKS add-ons (EBS CSI Driver, VPC CNI) first
+    // This ensures the cluster is fully functional before we try to use K8s providers
     const eksAddons: EksAddonsResources = createEksAddons(this, {
       clusterName: eks.cluster.name,
       ebsCsiDriverRoleArn: iam.ebsCsiDriverRole?.arn
+    });
+    
+    // Add a custom resource for a delay to ensure the EKS cluster is fully ready for authentication
+    // This helps solve the "server has asked for the client to provide credentials" error
+    // We'll use local-exec with sleep command since CDKTF doesn't have built-in time_sleep
+    // const eksReadyDelay = new TerraformResource(this, "eks-auth-ready-delay", {
+    //   terraformResourceType: "null_resource",
+    //   //friendlyUniqueId: "eks-auth-ready-delay",
+      
+    //   // Add explicit dependencies to ensure this runs after all EKS resources are created
+    //   dependsOn: [
+    //     eks.cluster, 
+    //     eks.nodeGroup, 
+    //     ...(eksAddons.ebsCsiDriver ? [eksAddons.ebsCsiDriver] : []), 
+    //     ...(eksAddons.vpcCni ? [eksAddons.vpcCni] : [])
+    //   ],
+      
+    //   // Use provisioner for local execution
+    //   provisioners: [{
+    //     type: "local-exec",
+    //     command: `echo "Waiting for 120 seconds for EKS authentication to be ready..." && sleep 120`
+    //   }]
+    // });
+    
+    // Initialize Kubernetes and Helm providers now that the EKS cluster and add-ons are ready
+    // This makes them available for all subsequent modules
+    // This is the critical point where we establish connectivity to the kubernetes API
+    // The delay ensures the EKS auth system is ready when we try to access it
+    ProviderManager.initializeK8sProviders(this, eks.cluster);
+    
+    // Deploy AWS Load Balancer Controller using Helm
+    // Use the shared Kubernetes and Helm providers from the admin role module
+    // This ensures consistent authentication across all components
+    // Make this explicitly depend on the delay to ensure auth is ready
+    const awsLbController: AwsLoadBalancerControllerResources = deployAwsLoadBalancerController(this, {
+      eksCluster: eks.cluster,
+      serviceAccountRoleArn: iam.lbControllerRole?.arn,
+      vpcId: vpc.vpc.id,
+      region: region.name,
+      dependsOn: [eks.cluster, eks.nodeGroup]  // Add explicit dependency on the delay
+    });
+
+    // Deploy ArgoCD using Helm (after AWS Load Balancer Controller)
+    // Also using the shared providers for consistency
+    const argocd: ArgoCDResources = deployArgoCD(this, {
+      eksCluster: eks.cluster,
+      dependsOn: [awsLbController.awsLoadBalancerControllerRelease] // Ensure ArgoCD is deployed after ALB Controller
     });
     
     // Note: We've disabled EKS Auto Mode features (computeConfig, storageConfig, elasticLoadBalancing)
     // and we're using native EKS add-ons instead:
     // 1. AWS EBS CSI Driver for persistent storage
     // 2. VPC CNI for networking
-    // 3. (Future) AWS Load Balancer Controller for ingress (via ArgoCD)
-    // 4. (Future) Karpenter for auto-scaling
     
     // Infrastructure components:
-    // 1. EBS CSI Driver: Enables persistent storage via native EKS addon
-    // 2. VPC CNI: Manages pod networking via native EKS addon
+    // 1. EKS Cluster: Kubernetes control plane
+    // 2. Node Group: Worker nodes
+    // 3. EBS CSI Driver: Enables persistent storage via native EKS addon
+    // 4. VPC CNI: Manages pod networking via native EKS addon
+    // 5. AWS Load Balancer Controller: Manages external-to-internal traffic (north-south)
+    // 6. ArgoCD: GitOps deployment platform
     
-    // ArgoCD-managed components (post-deployment):
-    // 1. AWS Load Balancer Controller: Will manage external-to-internal traffic (north-south)
-    // 2. Karpenter: Will handle auto-scaling
+    // Deployment Order:
+    // 1. EKS Cluster + IAM Roles
+    // 2. Native EKS Add-ons (EBS CSI Driver, VPC CNI)
+    // 3. AWS Load Balancer Controller (as Helm chart)
+    // 4. ArgoCD (as Helm chart, depends on AWS Load Balancer Controller)
+    
+    // Future components that could be managed by ArgoCD:
+    // 1. Karpenter: Will handle auto-scaling
     // 
-    // 2. Internal service-to-service traffic (east-west): Handled by Kubernetes built-in mechanisms
-    //    - Services of type ClusterIP (default) provide internal DNS names and virtual IPs
-    //    - CoreDNS enables service discovery by name (service.namespace.svc.cluster.local)
-    //    - For more advanced internal routing (path/header-based, etc.), consider adding 
-    //      an internal NGINX Ingress Controller in the future if needed
+    // Internal service-to-service traffic (east-west): Handled by Kubernetes built-in mechanisms
+    // - Services of type ClusterIP (default) provide internal DNS names and virtual IPs
+    // - CoreDNS enables service discovery by name (service.namespace.svc.cluster.local)
+    // - For more advanced internal routing (path/header-based, etc.), consider adding 
+    //   an internal NGINX Ingress Controller in the future if needed
 
     // Outputs
     new TerraformOutput(this, "cluster_name", { 

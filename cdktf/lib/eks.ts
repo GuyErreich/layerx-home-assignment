@@ -1,22 +1,19 @@
 import { Construct } from "constructs";
 import { EksCluster } from "../.gen/providers/aws/eks-cluster";
 import { EksNodeGroup } from "../.gen/providers/aws/eks-node-group";
-import { Namespace } from "../.gen/providers/kubernetes/namespace";
-import { KubernetesProvider } from "../.gen/providers/kubernetes/provider";
-import { Fn, Token } from "cdktf";
+import { ITerraformDependable, Token } from "cdktf";
 import { Config } from "./config";
 
 export interface EksResources {
   cluster: EksCluster;
   nodeGroup: EksNodeGroup;
-  kubernetesProvider: KubernetesProvider;
 }
 
 export interface EksOptions {
   eksRoleArn: string;
   nodeRoleArn: string;
   subnetIds: string[];
-  dependsOn?: any[]; // Allow specifying explicit dependencies
+  dependsOn?: ITerraformDependable[]; // Allow specifying explicit dependencies
 }
 
 export function createEks(scope: Construct, options: EksOptions): EksResources {
@@ -24,10 +21,11 @@ export function createEks(scope: Construct, options: EksOptions): EksResources {
     name: Config.cluster.name,
     roleArn: options.eksRoleArn,
     version: Config.cluster.version, // Using a stable version that's well-supported
-    dependsOn: options.dependsOn, // Add explicit dependencies
+    dependsOn: options.dependsOn || [], // Add explicit dependencies
     // Modern cluster configuration
     accessConfig: {
       authenticationMode: "API_AND_CONFIG_MAP", // Use both IAM and ConfigMap for flexibility
+      bootstrapClusterCreatorAdminPermissions: true, // Allow admin permissions for bootstrap
     },
     bootstrapSelfManagedAddons: false, // We'll use ArgoCD for add-ons
     // Disable built-in compute auto-scaling as we'll use Karpenter later
@@ -65,13 +63,13 @@ export function createEks(scope: Construct, options: EksOptions): EksResources {
   });
 
   // Direct approach to dependencies - in CDKTF this should work
-  if (options.dependsOn && options.dependsOn.length > 0) {
-    // Instead of trying complex approaches, we use CDKTF's built-in dependency mechanism
-    options.dependsOn.forEach(dep => {
-      // This correctly adds the resource to the "depends_on" list in Terraform
-      cluster.node.addDependency(dep);
-    });
-  }
+//   if (options.dependsOn && options.dependsOn.length > 0) {
+//     // Instead of trying complex approaches, we use CDKTF's built-in dependency mechanism
+//     options.dependsOn.forEach(dep => {
+//       // This correctly adds the resource to the "depends_on" list in Terraform
+//       cluster.node.addDependency(dep);
+//     });
+//   }
 
   const nodeGroup = new EksNodeGroup(scope, "eksNodeGroup", {
     clusterName: cluster.name,
@@ -99,21 +97,15 @@ export function createEks(scope: Construct, options: EksOptions): EksResources {
     },
   });
 
-  // Create the Kubernetes provider properly with base64 decoding
-  // We need to use Fn.base64decode for the certificate
-  const kubernetesProvider = new KubernetesProvider(scope, "k8s", {
-    host: cluster.endpoint,
-    // Use proper method to handle the certificate data
-    clusterCaCertificate: `${ Fn.base64decode(cluster.certificateAuthority.get(0).data) }`,
-  });
-
-  // Namespaces as part of EKS - Create after the provider is established
-  // Create namespaces from Config
-  Config.namespaces.forEach((namespace, index) => {
-    new Namespace(scope, `${namespace}-ns`, {
-      metadata: { name: namespace }
-    });
-  });
-
-  return { cluster, nodeGroup, kubernetesProvider };
+  // Each component will be responsible for creating its own namespaces
+  // ArgoCD will create the argocd namespace
+  // AWS Load Balancer Controller will use the existing kube-system namespace
+  // Applications deployed via ArgoCD will create their own namespaces as needed
+  
+  // Return the cluster and nodeGroup directly
+  // We'll handle Kubernetes provider through ProviderManager in the main stack
+  return { 
+    cluster, 
+    nodeGroup
+  };
 }

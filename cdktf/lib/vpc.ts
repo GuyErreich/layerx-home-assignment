@@ -17,6 +17,7 @@ export interface VpcModuleConfig {
 }
 
 export interface VpcModuleOutput {
+  // TODO: return proper needed values not the full VPC object
   vpc: Vpc;
   publicSubnets: Subnet[];
   internetGateway?: InternetGateway;
