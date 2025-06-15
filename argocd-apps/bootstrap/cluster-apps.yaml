@@ -3,6 +3,9 @@ kind: Application
 metadata:
   name: cluster-apps
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"  # Ensure this runs first
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
 spec:
   project: default
   source:
@@ -12,7 +15,7 @@ spec:
     directory:
       recurse: true
       jsonnet: {}
-      exclude: "bootstrap/*,../cdktf/**"
+      exclude: "bootstrap/*,../cdktf/**,**/templates/**"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

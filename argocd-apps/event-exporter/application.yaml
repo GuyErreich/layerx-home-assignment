@@ -10,6 +10,10 @@ spec:
     repoURL: https://github.com/GuyErreich/layerx-home-assignment.git
     targetRevision: master  # or main/master or specific branch
     path: argocd-apps/event-exporter  # Path to this directory in your repo
+    helm:
+      # Explicitly tell ArgoCD this is a Helm chart
+      valueFiles:
+        - values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
