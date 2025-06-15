@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: event-exporter
+  namespace: argocd
+spec:
+  project: default
+  source:
+    # This should point to your Git repository
+    repoURL: https://github.com/yourusername/layerx-home-assignment.git
+    targetRevision: HEAD  # or main/master or specific branch
+    path: argocd-apps/event-exporter  # Path to this directory in your repo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true      # Delete resources no longer in Git
+      selfHeal: true   # Fix drift automatically
+    syncOptions:
+      - CreateNamespace=true            # Auto-create namespace
+      - ServerSideApply=true            # Use server-side apply

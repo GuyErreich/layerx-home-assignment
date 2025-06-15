@@ -68,6 +68,16 @@ export class ProviderManager {
       host: eksCluster.endpoint,
       clusterCaCertificate: Fn.base64decode(eksCluster.certificateAuthority.get(0).data),
       token: this.clusterAuthInstance.token,
+    //   exec: [{
+    //     apiVersion: "client.authentication.k8s.io/v1beta1",
+    //     command: "aws",
+    //     args: [
+    //       "eks",
+    //       "get-token",
+    //       "--cluster-name",
+    //       eksCluster.name,
+    //     ],
+    //   }],
     });
     
     // Create the Helm provider using the same token
@@ -75,7 +85,17 @@ export class ProviderManager {
       kubernetes: {
         host: eksCluster.endpoint,
         clusterCaCertificate: Fn.base64decode(eksCluster.certificateAuthority.get(0).data),
-        token: this.kubernetesProviderInstance.token,
+        token: this.clusterAuthInstance.token,
+        // exec: {
+        //   apiVersion: "client.authentication.k8s.io/v1beta1",
+        //   command: "aws",
+        //   args: [
+        //     "eks",
+        //     "get-token",
+        //     "--cluster-name",
+        //     eksCluster.name,
+        //   ],
+        // },
       }
     });
     

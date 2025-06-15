@@ -1,3 +1,14 @@
+/**
+ * VPC Module for EKS
+ * 
+ * This module creates a VPC with public subnets that support both external and internal load balancers.
+ * In a production environment, you would typically have:
+ * - Public subnets (tagged with kubernetes.io/role/elb=1) for internet-facing resources and external load balancers
+ * - Private subnets (tagged with kubernetes.io/role/internal-elb=1) for internal resources and internal load balancers
+ * 
+ * For this assignment, we're using the same subnets for both roles by applying both tags.
+ */
+
 import { Construct } from "constructs";
 import { Vpc } from "../.gen/providers/aws/vpc";
 import { Subnet } from "../.gen/providers/aws/subnet";
@@ -7,6 +18,7 @@ import { Route } from "../.gen/providers/aws/route";
 import { RouteTableAssociation } from "../.gen/providers/aws/route-table-association";
 import { DataAwsRegion } from "../.gen/providers/aws/data-aws-region";
 import { DataAwsAvailabilityZones } from "../.gen/providers/aws/data-aws-availability-zones";
+import { Fn } from "cdktf";
 
 export interface VpcModuleConfig {
   name: string;
@@ -47,9 +59,9 @@ export class VpcModule extends Construct {
       enableDnsSupport: true,    // Required for EKS
       enableDnsHostnames: true,  // Required for EKS
       tags: {
-        Name: `${config.name}-vpc`,
+        Name: Fn.join("-", [config.name, "vpc"]),
         ...(config.eksClusterName && {
-          [`kubernetes.io/cluster/${config.eksClusterName}`]: "owned"  // Required for EKS cluster
+          [Fn.join("", ["kubernetes.io/cluster/", config.eksClusterName])]: "owned"  // Required for EKS cluster
         })
       },
     });
@@ -60,7 +72,7 @@ export class VpcModule extends Construct {
       this.internetGateway = new InternetGateway(this, "igw", {
         vpcId: this.vpc.id,
         tags: {
-          Name: `${config.name}-igw`,
+          Name: Fn.join("-", [config.name, "igw"]),
         },
       });
 
@@ -68,7 +80,7 @@ export class VpcModule extends Construct {
       this.publicRouteTable = new RouteTable(this, "public-rtb", {
         vpcId: this.vpc.id,
         tags: {
-          Name: `${config.name}-public-rtb`,
+          Name: Fn.join("-", [config.name, "public-rtb"]),
         },
       });
 
@@ -88,18 +100,21 @@ export class VpcModule extends Construct {
       // Create public subnets across AZs
       for (let i = 0; i < config.azs; i++) {
         // Calculate CIDR for this subnet
+        // This calculation is local and doesn't involve tokens
         const subnetCidr = `${vpcParts[0]}.${vpcParts[1]}.${thirdOctet + i * 16}.0/20`;
         
+        // Use literal strings for construct IDs since they must be known at synthesis time
         const subnet = new Subnet(this, `public-subnet-${i+1}`, {
           vpcId: this.vpc.id,
           cidrBlock: subnetCidr,
-          availabilityZone: `${region.name}${String.fromCharCode(97 + i)}`, // a, b, c, ...
+          availabilityZone: Fn.join("", [region.name, String.fromCharCode(97 + i)]), // a, b, c, ...
           mapPublicIpOnLaunch: true,
           tags: {
-            Name: `${config.name}-public-subnet-${i+1}`,
-            "kubernetes.io/role/elb": "1",                   // Required for AWS Load Balancer Controller
+            Name: Fn.join("-", [config.name, "public-subnet", (i+1).toString()]),
+            "kubernetes.io/role/elb": "1",                   // Required for AWS Load Balancer Controller (external/public ELBs)
+            "kubernetes.io/role/internal-elb": "1",         // Required for AWS Load Balancer Controller (internal ELBs)
             ...(config.eksClusterName && {
-              [`kubernetes.io/cluster/${config.eksClusterName}`]: "owned"  // Required for EKS to identify the subnet
+              [Fn.join("", ["kubernetes.io/cluster/", config.eksClusterName])]: "owned"  // Required for EKS to identify the subnet
             })
           },
         });

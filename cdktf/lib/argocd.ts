@@ -24,7 +24,7 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
   const helmProvider = ProviderManager.getHelmProvider();
 
   // Let the Helm chart create the namespace - more consistent approach
-  // Deploy ArgoCD using Helm
+  // Deploy ArgoCD using Helm - with minimal configuration to avoid timeouts
   const argocdRelease = new Release(scope, "argocd", {
     provider: helmProvider,
     name: "argocd",
@@ -32,34 +32,97 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
     createNamespace: true, // Let Helm create the namespace
     repository: "https://argoproj.github.io/argo-helm",
     chart: "argo-cd",
-    //TODO: Might have to update this version based on latest stable release
-    version: "7.0.0", // Specify a stable version
-
-    // Values to customize ArgoCD installation
+    version: "7.0.0", // Using a much older, more stable version to avoid compatibility issues
+    
+    // Configure timeouts and retry behavior - removing atomic to prevent full rollback on timeout
+    timeout: 1200, // 20 minutes - increased timeout
+    atomic: false, // Don't roll back on failure - this helps avoid the CRD cleanup issues
+    cleanupOnFail: false, // Don't try to clean up on failure
+    wait: true,
+    recreatePods: false, // Avoid recreating pods which can cause delays
+    
+    // Values to customize ArgoCD installation with minimal resource usage
     values: [
       JSON.stringify({
-        // Enable High Availability for ArgoCD
-        ha: {
-          enabled: false // Set to true for production deployments
-        },
-
-        server: {
-          extraArgs: [
-            //TODO: Remove insecure flag in production
-            // Allow access without login for demo purposes (remove in production)
-            "--insecure"
-          ],
-          service: {
-            type: "LoadBalancer" // Expose ArgoCD via LoadBalancer for easy access
+        // Use the most minimal configuration possible
+        global: {
+          securityContext: {
+            runAsNonRoot: true,
+            runAsUser: 999
           }
         },
-
-        // Disable TLS for demo purposes (use proper TLS in production)
+        
+        // Super minimal server config
+        server: {
+          replicas: 1,
+          extraArgs: ["--insecure"],
+          service: {
+            type: "LoadBalancer",
+            annotations: {
+              // Explicitly specify internet-facing load balancer
+              "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing"
+            }
+          },
+          autoscaling: {
+            enabled: false
+          },
+          resources: {
+            limits: {
+              cpu: "100m",
+              memory: "128Mi"
+            },
+            requests: {
+              cpu: "50m",
+              memory: "64Mi"
+            }
+          }
+        },
+        
+        // Disable or reduce components to absolute minimum
+        controller: {
+          replicas: 1,
+          resources: {
+            limits: {
+              cpu: "100m",
+              memory: "128Mi"
+            },
+            requests: {
+              cpu: "50m",
+              memory: "64Mi"
+            }
+          }
+        },
+        
+        repoServer: {
+          replicas: 1,
+          resources: {
+            limits: {
+              cpu: "100m",
+              memory: "128Mi"
+            },
+            requests: {
+              cpu: "50m",
+              memory: "64Mi"
+            }
+          }
+        },
+        
+        // Disable optional components
+        applicationSet: {
+          enabled: false
+        },
+        notifications: {
+          enabled: false
+        },
+        dex: {
+          enabled: false
+        },
+        
+        // Basic auth settings
         configs: {
           secret: {
             createSecret: true,
-            //TODO: Remove hardcoded password
-            argocdServerAdminPassword: "$2a$10$oPTD5g5.VNwv.rwWeYx7Su1R0VOB0lAWyWlcNuFq1i/eCmdZTXuP2" // Default 'argocd' password
+            argocdServerAdminPassword: "$2a$12$QmPft0fN51eBUiDvWcEcQOSU73Eu/OSaIUvsHuop5JgnwB67CIiRi" // Default 'argocd' password
           }
         }
       })

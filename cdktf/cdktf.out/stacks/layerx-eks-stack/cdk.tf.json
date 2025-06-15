@@ -66,14 +66,14 @@
                 "values": [
                   "system:serviceaccount:kube-system:ebs-csi-controller-sa"
                 ],
-                "variable": "${aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer}:sub"
+                "variable": "${join(\"\", [replace(aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer, \"https://\", \"\"), \":sub\"])}"
               }
             ],
             "effect": "Allow",
             "principals": [
               {
                 "identifiers": [
-                  "arn:aws:iam::${data.aws_caller_identity.current-identity.account_id}:oidc-provider/${aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer}"
+                  "${join(\"\", [\"arn:aws:iam::\", data.aws_caller_identity.current-identity.account_id, \":oidc-provider/\", replace(aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer, \"https://\", \"\")])}"
                 ],
                 "type": "Federated"
               }
@@ -99,14 +99,14 @@
                 "values": [
                   "system:serviceaccount:kube-system:aws-load-balancer-controller"
                 ],
-                "variable": "${aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer}:sub"
+                "variable": "${join(\"\", [replace(aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer, \"https://\", \"\"), \":sub\"])}"
               }
             ],
             "effect": "Allow",
             "principals": [
               {
                 "identifiers": [
-                  "arn:aws:iam::${data.aws_caller_identity.current-identity.account_id}:oidc-provider/${aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer}"
+                  "${join(\"\", [\"arn:aws:iam::\", data.aws_caller_identity.current-identity.account_id, \":oidc-provider/\", replace(aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer, \"https://\", \"\")])}"
                 ],
                 "type": "Federated"
               }
@@ -150,7 +150,7 @@
     },
     "kubeconfig_command": {
       "description": "Command to configure kubectl for the cluster",
-      "value": "aws eks update-kubeconfig --name ${aws_eks_cluster.eksCluster.name} --region $(aws configure get region)"
+      "value": "${join(\"\", [\"aws eks update-kubeconfig --name \", aws_eks_cluster.eksCluster.name, \" --region $(aws configure get region)\"])}"
     }
   },
   "provider": {
@@ -191,19 +191,6 @@
         "resolve_conflicts_on_create": "OVERWRITE",
         "resolve_conflicts_on_update": "PRESERVE",
         "service_account_role_arn": "${aws_iam_role.ebsCsiDriverRole.arn}"
-      },
-      "vpc-cni": {
-        "//": {
-          "metadata": {
-            "path": "layerx-eks-stack/vpc-cni",
-            "uniqueId": "vpc-cni"
-          }
-        },
-        "addon_name": "vpc-cni",
-        "addon_version": "v1.19.5-eksbuild.3",
-        "cluster_name": "${aws_eks_cluster.eksCluster.name}",
-        "resolve_conflicts_on_create": "OVERWRITE",
-        "resolve_conflicts_on_update": "PRESERVE"
       }
     },
     "aws_eks_cluster": {
@@ -218,7 +205,7 @@
           "authentication_mode": "API_AND_CONFIG_MAP",
           "bootstrap_cluster_creator_admin_permissions": true
         },
-        "bootstrap_self_managed_addons": false,
+        "bootstrap_self_managed_addons": true,
         "compute_config": {
           "enabled": false
         },
@@ -231,6 +218,7 @@
           "elastic_load_balancing": {
             "enabled": false
           },
+          "ip_family": "ipv4",
           "service_ipv4_cidr": "10.100.0.0/16"
         },
         "name": "layerx-eks",
@@ -269,12 +257,12 @@
         ],
         "disk_size": 20,
         "instance_types": [
-          "t3.micro"
+          "t3.small"
         ],
         "node_role_arn": "${aws_iam_role.nodeRole.arn}",
         "scaling_config": {
-          "desired_size": 3,
-          "max_size": 4,
+          "desired_size": 2,
+          "max_size": 8,
           "min_size": 2
         },
         "subnet_ids": [
@@ -282,10 +270,30 @@
           "${aws_subnet.vpc_public-subnet-2_50BC5771.id}"
         ],
         "tags": {
-          "Name": "layerx-eks-node",
-          "kubernetes.io/cluster/layerx-eks": "owned"
+          "${join(\"\", [\"kubernetes.io/cluster/\", \"layerx-eks\"])}": "owned",
+          "Name": "${join(\"-\", [\"layerx-eks\", \"node\"])}"
         },
         "version": "${aws_eks_cluster.eksCluster.version}"
+      }
+    },
+    "aws_iam_openid_connect_provider": {
+      "eks-oidc-provider": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/eks-oidc-provider",
+            "uniqueId": "eks-oidc-provider"
+          }
+        },
+        "client_id_list": [
+          "sts.amazonaws.com"
+        ],
+        "tags": {
+          "Name": "${join(\"-\", [\"layerx-eks\", \"oidc-provider\"])}"
+        },
+        "thumbprint_list": [
+          "9e99a48a9960b14926bb7f3b02e22da2b0ab7280"
+        ],
+        "url": "${aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer}"
       }
     },
     "aws_iam_policy": {
@@ -296,8 +304,8 @@
             "uniqueId": "lbControllerPolicy"
           }
         },
-        "name": "layerx-eks-lb-controller-role-policy",
-        "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"iam:CreateServiceLinkedRole\"],\"Resource\":\"*\",\"Condition\":{\"StringEquals\":{\"iam:AWSServiceName\":\"elasticloadbalancing.amazonaws.com\"}}},{\"Effect\":\"Allow\",\"Action\":[\"ec2:DescribeAccountAttributes\",\"ec2:DescribeAddresses\",\"ec2:DescribeAvailabilityZones\",\"ec2:DescribeInternetGateways\",\"ec2:DescribeVpcs\",\"ec2:DescribeVpcPeeringConnections\",\"ec2:DescribeSubnets\",\"ec2:DescribeSecurityGroups\",\"ec2:DescribeInstances\",\"ec2:DescribeNetworkInterfaces\",\"ec2:DescribeTags\",\"ec2:GetCoipPoolUsage\",\"ec2:DescribeCoipPools\",\"elasticloadbalancing:DescribeLoadBalancers\",\"elasticloadbalancing:DescribeLoadBalancerAttributes\",\"elasticloadbalancing:DescribeListeners\",\"elasticloadbalancing:DescribeListenerCertificates\",\"elasticloadbalancing:DescribeSSLPolicies\",\"elasticloadbalancing:DescribeRules\",\"elasticloadbalancing:DescribeTargetGroups\",\"elasticloadbalancing:DescribeTargetGroupAttributes\",\"elasticloadbalancing:DescribeTargetHealth\",\"elasticloadbalancing:DescribeTags\"],\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"cognito-idp:DescribeUserPoolClient\",\"acm:ListCertificates\",\"acm:DescribeCertificate\",\"iam:ListServerCertificates\",\"iam:GetServerCertificate\",\"waf-regional:GetWebACL\",\"waf-regional:GetWebACLForResource\",\"waf-regional:AssociateWebACL\",\"waf-regional:DisassociateWebACL\",\"wafv2:GetWebACL\",\"wafv2:GetWebACLForResource\",\"wafv2:AssociateWebACL\",\"wafv2:DisassociateWebACL\",\"shield:GetSubscriptionState\",\"shield:DescribeProtection\",\"shield:CreateProtection\",\"shield:DeleteProtection\"],\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"ec2:AuthorizeSecurityGroupIngress\",\"ec2:RevokeSecurityGroupIngress\"],\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"ec2:CreateSecurityGroup\"],\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"ec2:CreateTags\"],\"Resource\":\"arn:aws:ec2:*:*:security-group/*\",\"Condition\":{\"StringEquals\":{\"ec2:CreateAction\":\"CreateSecurityGroup\"},\"Null\":{\"aws:RequestTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Effect\":\"Allow\",\"Action\":[\"ec2:CreateTags\",\"ec2:DeleteTags\"],\"Resource\":\"arn:aws:ec2:*:*:security-group/*\",\"Condition\":{\"Null\":{\"aws:RequestTag/elbv2.k8s.aws/cluster\":\"true\",\"aws:ResourceTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Effect\":\"Allow\",\"Action\":[\"ec2:AuthorizeSecurityGroupIngress\",\"ec2:RevokeSecurityGroupIngress\",\"ec2:DeleteSecurityGroup\"],\"Resource\":\"*\",\"Condition\":{\"Null\":{\"aws:ResourceTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:CreateLoadBalancer\",\"elasticloadbalancing:CreateTargetGroup\"],\"Resource\":\"*\",\"Condition\":{\"Null\":{\"aws:RequestTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:CreateListener\",\"elasticloadbalancing:DeleteListener\",\"elasticloadbalancing:CreateRule\",\"elasticloadbalancing:DeleteRule\"],\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:AddTags\",\"elasticloadbalancing:RemoveTags\"],\"Resource\":[\"arn:aws:elasticloadbalancing:*:*:targetgroup/*/*\",\"arn:aws:elasticloadbalancing:*:*:loadbalancer/net/*/*\",\"arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*\"],\"Condition\":{\"Null\":{\"aws:RequestTag/elbv2.k8s.aws/cluster\":\"true\",\"aws:ResourceTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:AddTags\",\"elasticloadbalancing:RemoveTags\"],\"Resource\":[\"arn:aws:elasticloadbalancing:*:*:listener/net/*/*/*\",\"arn:aws:elasticloadbalancing:*:*:listener/app/*/*/*\",\"arn:aws:elasticloadbalancing:*:*:listener-rule/net/*/*/*\",\"arn:aws:elasticloadbalancing:*:*:listener-rule/app/*/*/*\"]},{\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:ModifyLoadBalancerAttributes\",\"elasticloadbalancing:SetIpAddressType\",\"elasticloadbalancing:SetSecurityGroups\",\"elasticloadbalancing:SetSubnets\",\"elasticloadbalancing:DeleteLoadBalancer\",\"elasticloadbalancing:ModifyTargetGroup\",\"elasticloadbalancing:ModifyTargetGroupAttributes\",\"elasticloadbalancing:DeleteTargetGroup\"],\"Resource\":\"*\",\"Condition\":{\"Null\":{\"aws:ResourceTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:RegisterTargets\",\"elasticloadbalancing:DeregisterTargets\"],\"Resource\":\"arn:aws:elasticloadbalancing:*:*:targetgroup/*/*\"},{\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:SetWebAcl\",\"elasticloadbalancing:ModifyListener\",\"elasticloadbalancing:AddListenerCertificates\",\"elasticloadbalancing:RemoveListenerCertificates\",\"elasticloadbalancing:ModifyRule\"],\"Resource\":\"*\"}]}"
+        "name": "${join(\"-\", [\"layerx-eks-lb-controller-role\", \"policy\"])}",
+        "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"CreateELBServiceLinkedRole\",\"Effect\":\"Allow\",\"Action\":[\"iam:CreateServiceLinkedRole\"],\"Resource\":\"*\",\"Condition\":{\"StringEquals\":{\"iam:AWSServiceName\":\"elasticloadbalancing.amazonaws.com\"}}},{\"Sid\":\"ReadEC2andELBResources\",\"Effect\":\"Allow\",\"Action\":[\"ec2:DescribeAccountAttributes\",\"ec2:DescribeAddresses\",\"ec2:DescribeAvailabilityZones\",\"ec2:DescribeInternetGateways\",\"ec2:DescribeVpcs\",\"ec2:DescribeVpcPeeringConnections\",\"ec2:DescribeSubnets\",\"ec2:DescribeSecurityGroups\",\"ec2:DescribeInstances\",\"ec2:DescribeNetworkInterfaces\",\"ec2:DescribeTags\",\"ec2:GetCoipPoolUsage\",\"ec2:DescribeCoipPools\",\"elasticloadbalancing:DescribeLoadBalancers\",\"elasticloadbalancing:DescribeLoadBalancerAttributes\",\"elasticloadbalancing:DescribeListeners\",\"elasticloadbalancing:DescribeListenerCertificates\",\"elasticloadbalancing:DescribeSSLPolicies\",\"elasticloadbalancing:DescribeRules\",\"elasticloadbalancing:DescribeTargetGroups\",\"elasticloadbalancing:DescribeTargetGroupAttributes\",\"elasticloadbalancing:DescribeTargetHealth\",\"elasticloadbalancing:DescribeTags\"],\"Resource\":\"*\"},{\"Sid\":\"AccessRelatedAWSServices\",\"Effect\":\"Allow\",\"Action\":[\"cognito-idp:DescribeUserPoolClient\",\"acm:ListCertificates\",\"acm:DescribeCertificate\",\"iam:ListServerCertificates\",\"iam:GetServerCertificate\",\"waf-regional:GetWebACL\",\"waf-regional:GetWebACLForResource\",\"waf-regional:AssociateWebACL\",\"waf-regional:DisassociateWebACL\",\"wafv2:GetWebACL\",\"wafv2:GetWebACLForResource\",\"wafv2:AssociateWebACL\",\"wafv2:DisassociateWebACL\",\"shield:GetSubscriptionState\",\"shield:DescribeProtection\",\"shield:CreateProtection\",\"shield:DeleteProtection\"],\"Resource\":\"*\"},{\"Sid\":\"ManageSecurityGroupRules\",\"Effect\":\"Allow\",\"Action\":[\"ec2:AuthorizeSecurityGroupIngress\",\"ec2:RevokeSecurityGroupIngress\"],\"Resource\":\"*\"},{\"Sid\":\"CreateSecurityGroups\",\"Effect\":\"Allow\",\"Action\":[\"ec2:CreateSecurityGroup\"],\"Resource\":\"*\"},{\"Sid\":\"TagNewSecurityGroups\",\"Effect\":\"Allow\",\"Action\":[\"ec2:CreateTags\"],\"Resource\":\"arn:aws:ec2:*:*:security-group/*\",\"Condition\":{\"StringEquals\":{\"ec2:CreateAction\":\"CreateSecurityGroup\"},\"Null\":{\"aws:RequestTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Sid\":\"ManageSecurityGroupTags\",\"Effect\":\"Allow\",\"Action\":[\"ec2:CreateTags\",\"ec2:DeleteTags\"],\"Resource\":\"arn:aws:ec2:*:*:security-group/*\",\"Condition\":{\"Null\":{\"aws:RequestTag/elbv2.k8s.aws/cluster\":\"true\",\"aws:ResourceTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Sid\":\"ManageSecurityGroups\",\"Effect\":\"Allow\",\"Action\":[\"ec2:AuthorizeSecurityGroupIngress\",\"ec2:RevokeSecurityGroupIngress\",\"ec2:DeleteSecurityGroup\"],\"Resource\":\"*\",\"Condition\":{\"Null\":{\"aws:ResourceTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Sid\":\"CreateLoadBalancersAndTargetGroups\",\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:CreateLoadBalancer\",\"elasticloadbalancing:CreateTargetGroup\"],\"Resource\":\"*\",\"Condition\":{\"Null\":{\"aws:RequestTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Sid\":\"ManageELBListenersAndRules\",\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:CreateListener\",\"elasticloadbalancing:DeleteListener\",\"elasticloadbalancing:CreateRule\",\"elasticloadbalancing:DeleteRule\"],\"Resource\":\"*\"},{\"Sid\":\"ManageELBAndTargetGroupTags\",\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:AddTags\",\"elasticloadbalancing:RemoveTags\"],\"Resource\":[\"arn:aws:elasticloadbalancing:*:*:targetgroup/*/*\",\"arn:aws:elasticloadbalancing:*:*:loadbalancer/net/*/*\",\"arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*\"],\"Condition\":{\"Null\":{\"aws:RequestTag/elbv2.k8s.aws/cluster\":\"true\",\"aws:ResourceTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Sid\":\"ManageListenerAndRuleTags\",\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:AddTags\",\"elasticloadbalancing:RemoveTags\"],\"Resource\":[\"arn:aws:elasticloadbalancing:*:*:listener/net/*/*/*\",\"arn:aws:elasticloadbalancing:*:*:listener/app/*/*/*\",\"arn:aws:elasticloadbalancing:*:*:listener-rule/net/*/*/*\",\"arn:aws:elasticloadbalancing:*:*:listener-rule/app/*/*/*\"]},{\"Sid\":\"ManageELBAndTargetGroupSettings\",\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:ModifyLoadBalancerAttributes\",\"elasticloadbalancing:SetIpAddressType\",\"elasticloadbalancing:SetSecurityGroups\",\"elasticloadbalancing:SetSubnets\",\"elasticloadbalancing:DeleteLoadBalancer\",\"elasticloadbalancing:ModifyTargetGroup\",\"elasticloadbalancing:ModifyTargetGroupAttributes\",\"elasticloadbalancing:DeleteTargetGroup\"],\"Resource\":\"*\",\"Condition\":{\"Null\":{\"aws:ResourceTag/elbv2.k8s.aws/cluster\":\"false\"}}},{\"Sid\":\"ManageArgoCDResourceTags\",\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:AddTags\"],\"Resource\":[\"arn:aws:elasticloadbalancing:*:*:targetgroup/k8s-argocd-*/*\",\"arn:aws:elasticloadbalancing:*:*:loadbalancer/*/k8s-argocd-*/*\"]},{\"Sid\":\"ManageTargetGroupRegistrations\",\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:RegisterTargets\",\"elasticloadbalancing:DeregisterTargets\"],\"Resource\":\"arn:aws:elasticloadbalancing:*:*:targetgroup/*/*\"},{\"Sid\":\"ManageListenersAndRules\",\"Effect\":\"Allow\",\"Action\":[\"elasticloadbalancing:SetWebAcl\",\"elasticloadbalancing:ModifyListener\",\"elasticloadbalancing:AddListenerCertificates\",\"elasticloadbalancing:RemoveListenerCertificates\",\"elasticloadbalancing:ModifyRule\"],\"Resource\":\"*\"}]}"
       }
     },
     "aws_iam_role": {
@@ -423,7 +431,7 @@
           }
         },
         "tags": {
-          "Name": "layerx-eks-igw"
+          "Name": "${join(\"-\", [\"layerx-eks\", \"igw\"])}"
         },
         "vpc_id": "${aws_vpc.vpc_6776A399.id}"
       }
@@ -450,7 +458,7 @@
           }
         },
         "tags": {
-          "Name": "layerx-eks-public-rtb"
+          "Name": "${join(\"-\", [\"layerx-eks\", \"public-rtb\"])}"
         },
         "vpc_id": "${aws_vpc.vpc_6776A399.id}"
       }
@@ -485,13 +493,14 @@
             "uniqueId": "vpc_public-subnet-1_B6E44E35"
           }
         },
-        "availability_zone": "${data.aws_region.vpc_current_561DBC69.name}a",
+        "availability_zone": "${join(\"\", [data.aws_region.vpc_current_561DBC69.name, \"a\"])}",
         "cidr_block": "10.0.0.0/20",
         "map_public_ip_on_launch": true,
         "tags": {
-          "Name": "layerx-eks-public-subnet-1",
-          "kubernetes.io/cluster/layerx-eks": "owned",
-          "kubernetes.io/role/elb": "1"
+          "${join(\"\", [\"kubernetes.io/cluster/\", \"layerx-eks\"])}": "owned",
+          "Name": "${join(\"-\", [\"layerx-eks\", \"public-subnet\", \"1\"])}",
+          "kubernetes.io/role/elb": "1",
+          "kubernetes.io/role/internal-elb": "1"
         },
         "vpc_id": "${aws_vpc.vpc_6776A399.id}"
       },
@@ -502,13 +511,14 @@
             "uniqueId": "vpc_public-subnet-2_50BC5771"
           }
         },
-        "availability_zone": "${data.aws_region.vpc_current_561DBC69.name}b",
+        "availability_zone": "${join(\"\", [data.aws_region.vpc_current_561DBC69.name, \"b\"])}",
         "cidr_block": "10.0.16.0/20",
         "map_public_ip_on_launch": true,
         "tags": {
-          "Name": "layerx-eks-public-subnet-2",
-          "kubernetes.io/cluster/layerx-eks": "owned",
-          "kubernetes.io/role/elb": "1"
+          "${join(\"\", [\"kubernetes.io/cluster/\", \"layerx-eks\"])}": "owned",
+          "Name": "${join(\"-\", [\"layerx-eks\", \"public-subnet\", \"2\"])}",
+          "kubernetes.io/role/elb": "1",
+          "kubernetes.io/role/internal-elb": "1"
         },
         "vpc_id": "${aws_vpc.vpc_6776A399.id}"
       }
@@ -525,8 +535,8 @@
         "enable_dns_hostnames": true,
         "enable_dns_support": true,
         "tags": {
-          "Name": "layerx-eks-vpc",
-          "kubernetes.io/cluster/layerx-eks": "owned"
+          "${join(\"\", [\"kubernetes.io/cluster/\", \"layerx-eks\"])}": "owned",
+          "Name": "${join(\"-\", [\"layerx-eks\", \"vpc\"])}"
         }
       }
     },
@@ -538,7 +548,9 @@
             "uniqueId": "argocd"
           }
         },
+        "atomic": false,
         "chart": "argo-cd",
+        "cleanup_on_fail": false,
         "create_namespace": true,
         "depends_on": [
           "helm_release.aws-load-balancer-controller"
@@ -546,11 +558,14 @@
         "name": "argocd",
         "namespace": "argocd",
         "provider": "helm",
+        "recreate_pods": false,
         "repository": "https://argoproj.github.io/argo-helm",
+        "timeout": 1200,
         "values": [
-          "{\"ha\":{\"enabled\":false},\"server\":{\"extraArgs\":[\"--insecure\"],\"service\":{\"type\":\"LoadBalancer\"}},\"configs\":{\"secret\":{\"createSecret\":true,\"argocdServerAdminPassword\":\"$2a$10$oPTD5g5.VNwv.rwWeYx7Su1R0VOB0lAWyWlcNuFq1i/eCmdZTXuP2\"}}}"
+          "{\"global\":{\"securityContext\":{\"runAsNonRoot\":true,\"runAsUser\":999}},\"server\":{\"replicas\":1,\"extraArgs\":[\"--insecure\"],\"service\":{\"type\":\"LoadBalancer\",\"annotations\":{\"service.beta.kubernetes.io/aws-load-balancer-scheme\":\"internet-facing\"}},\"autoscaling\":{\"enabled\":false},\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"128Mi\"},\"requests\":{\"cpu\":\"50m\",\"memory\":\"64Mi\"}}},\"controller\":{\"replicas\":1,\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"128Mi\"},\"requests\":{\"cpu\":\"50m\",\"memory\":\"64Mi\"}}},\"repoServer\":{\"replicas\":1,\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"128Mi\"},\"requests\":{\"cpu\":\"50m\",\"memory\":\"64Mi\"}}},\"applicationSet\":{\"enabled\":false},\"notifications\":{\"enabled\":false},\"dex\":{\"enabled\":false},\"configs\":{\"secret\":{\"createSecret\":true,\"argocdServerAdminPassword\":\"$2a$12$QmPft0fN51eBUiDvWcEcQOSU73Eu/OSaIUvsHuop5JgnwB67CIiRi\"}}}"
         ],
-        "version": "7.0.0"
+        "version": "7.0.0",
+        "wait": true
       },
       "aws-load-balancer-controller": {
         "//": {
@@ -559,7 +574,9 @@
             "uniqueId": "aws-load-balancer-controller"
           }
         },
+        "atomic": true,
         "chart": "aws-load-balancer-controller",
+        "cleanup_on_fail": true,
         "create_namespace": false,
         "depends_on": [
           "aws_eks_cluster.eksCluster",
@@ -574,9 +591,10 @@
         "skip_crds": false,
         "timeout": 900,
         "values": [
-          "{\"clusterName\":\"${aws_eks_cluster.eksCluster.name}\",\"region\":\"${data.aws_region.current-region.name}\",\"vpcId\":\"${aws_vpc.vpc_6776A399.id}\",\"installCRDs\":true,\"ingressClass\":\"alb\",\"serviceAccount\":{\"create\":true,\"name\":\"aws-load-balancer-controller\",\"annotations\":{\"eks.amazonaws.com/role-arn\":\"${aws_iam_role.lbControllerRole.arn}\"}},\"enableShield\":false,\"enableWaf\":false,\"enableWafv2\":false,\"resources\":{\"requests\":{\"cpu\":\"100m\",\"memory\":\"128Mi\"},\"limits\":{\"cpu\":\"300m\",\"memory\":\"512Mi\"}},\"podDisruptionBudget\":{\"enabled\":true,\"maxUnavailable\":1},\"webhookNamespaceSelectors\":[]}"
+          "{\"clusterName\":\"${aws_eks_cluster.eksCluster.name}\",\"region\":\"${data.aws_region.current-region.name}\",\"vpcId\":\"${aws_vpc.vpc_6776A399.id}\",\"installCRDs\":true,\"ingressClass\":\"alb\",\"serviceAccount\":{\"create\":true,\"name\":\"aws-load-balancer-controller\",\"annotations\":{\"eks.amazonaws.com/role-arn\":\"${aws_iam_role.lbControllerRole.arn}\"}},\"enableShield\":false,\"enableWaf\":false,\"enableWafv2\":false,\"resources\":{\"requests\":{\"cpu\":\"50m\",\"memory\":\"64Mi\"},\"limits\":{\"cpu\":\"200m\",\"memory\":\"256Mi\"}},\"podDisruptionBudget\":{\"enabled\":true,\"maxUnavailable\":1},\"webhookNamespaceSelectors\":[]}"
         ],
-        "version": "1.7.0"
+        "version": "1.7.0",
+        "wait": true
       }
     }
   },

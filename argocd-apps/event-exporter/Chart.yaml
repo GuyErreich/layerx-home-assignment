@@ -1,0 +1,12 @@
+apiVersion: v2
+name: event-exporter-custom
+description: A custom wrapper for the Bitnami Kubernetes Event Exporter
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+# Dependencies section defining the upstream chart
+dependencies:
+  - name: kubernetes-event-exporter
+    version: 2.5.1  # Specify the version you want to use
+    repository: https://charts.bitnami.com/bitnami

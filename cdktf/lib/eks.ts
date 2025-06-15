@@ -1,7 +1,7 @@
 import { Construct } from "constructs";
 import { EksCluster } from "../.gen/providers/aws/eks-cluster";
 import { EksNodeGroup } from "../.gen/providers/aws/eks-node-group";
-import { ITerraformDependable, Token } from "cdktf";
+import { ITerraformDependable, Token, Fn } from "cdktf";
 import { Config } from "./config";
 
 export interface EksResources {
@@ -27,7 +27,7 @@ export function createEks(scope: Construct, options: EksOptions): EksResources {
       authenticationMode: "API_AND_CONFIG_MAP", // Use both IAM and ConfigMap for flexibility
       bootstrapClusterCreatorAdminPermissions: true, // Allow admin permissions for bootstrap
     },
-    bootstrapSelfManagedAddons: false, // We'll use ArgoCD for add-ons
+    bootstrapSelfManagedAddons: true, // Enable core add-ons for proper networking
     // Disable built-in compute auto-scaling as we'll use Karpenter later
     computeConfig: {
       enabled: false, // We'll use Karpenter for auto-scaling instead of EKS Auto Mode compute
@@ -48,7 +48,8 @@ export function createEks(scope: Construct, options: EksOptions): EksResources {
     // },
     // Configure networking
     kubernetesNetworkConfig: {
-      serviceIpv4Cidr: "10.100.0.0/16", // Custom range for pod/service IPs
+      serviceIpv4Cidr: "10.100.0.0/16", // Standard range for service IPs
+      ipFamily: "ipv4", // Explicitly use IPv4 for better compatibility
       elasticLoadBalancing: {
         enabled: false, // Must be false to be consistent with computeConfig
         // Note: We'll deploy AWS Load Balancer Controller separately to handle load balancing
@@ -92,8 +93,8 @@ export function createEks(scope: Construct, options: EksOptions): EksResources {
     dependsOn: [cluster],
     // Add tags for better visibility
     tags: {
-      "Name": `${Config.cluster.name}-node`,
-      [`kubernetes.io/cluster/${Config.cluster.name}`]: "owned",
+      "Name": Fn.join("-", [Config.cluster.name, "node"]),
+      [Fn.join("", ["kubernetes.io/cluster/", Config.cluster.name])]: "owned",
     },
   });
 

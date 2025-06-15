@@ -7,6 +7,7 @@ import { Fn, Token } from "cdktf";
 import { Config } from "./config";
 import { EksCluster } from "../.gen/providers/aws/eks-cluster";
 import { DataAwsIamPolicyDocument } from "../.gen/providers/aws/data-aws-iam-policy-document";
+import { IamOpenidConnectProvider } from "../.gen/providers/aws/iam-openid-connect-provider";
 
 export interface EksIamRoles {
   eksRole: IamRole;
@@ -15,6 +16,7 @@ export interface EksIamRoles {
   lbControllerRole?: IamRole;
   updateEbsCsiDriverRoleTrustPolicy?: (cluster: EksCluster) => void;
   updateLbControllerRoleTrustPolicy?: (cluster: EksCluster) => void;
+  createOidcProvider?: (cluster: EksCluster) => IamOpenidConnectProvider;
 }
 
 export function createIamRoles(scope: Construct): EksIamRoles {
@@ -92,11 +94,12 @@ export function createIamRoles(scope: Construct): EksIamRoles {
 
   // Create the AWS Load Balancer Controller policy
   const lbControllerPolicy = new IamPolicy(scope, "lbControllerPolicy", {
-    name: `${Config.iam.lbControllerRoleName}-policy`,
+    name: Fn.join("-", [Config.iam.lbControllerRoleName, "policy"]),
     policy: JSON.stringify({
       Version: "2012-10-17",
       Statement: [
         {
+          Sid: "CreateELBServiceLinkedRole",
           Effect: "Allow",
           Action: [
             "iam:CreateServiceLinkedRole"
@@ -109,6 +112,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           }
         },
         {
+          Sid: "ReadEC2andELBResources",
           Effect: "Allow",
           Action: [
             "ec2:DescribeAccountAttributes",
@@ -138,6 +142,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           Resource: "*"
         },
         {
+          Sid: "AccessRelatedAWSServices",
           Effect: "Allow",
           Action: [
             "cognito-idp:DescribeUserPoolClient",
@@ -161,6 +166,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           Resource: "*"
         },
         {
+          Sid: "ManageSecurityGroupRules",
           Effect: "Allow",
           Action: [
             "ec2:AuthorizeSecurityGroupIngress",
@@ -169,6 +175,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           Resource: "*"
         },
         {
+          Sid: "CreateSecurityGroups",
           Effect: "Allow",
           Action: [
             "ec2:CreateSecurityGroup"
@@ -176,6 +183,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           Resource: "*"
         },
         {
+          Sid: "TagNewSecurityGroups",
           Effect: "Allow",
           Action: [
             "ec2:CreateTags"
@@ -191,6 +199,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           }
         },
         {
+          Sid: "ManageSecurityGroupTags",
           Effect: "Allow",
           Action: [
             "ec2:CreateTags",
@@ -205,6 +214,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           }
         },
         {
+          Sid: "ManageSecurityGroups",
           Effect: "Allow",
           Action: [
             "ec2:AuthorizeSecurityGroupIngress",
@@ -219,6 +229,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           }
         },
         {
+          Sid: "CreateLoadBalancersAndTargetGroups",
           Effect: "Allow",
           Action: [
             "elasticloadbalancing:CreateLoadBalancer",
@@ -232,6 +243,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           }
         },
         {
+          Sid: "ManageELBListenersAndRules",
           Effect: "Allow",
           Action: [
             "elasticloadbalancing:CreateListener",
@@ -242,6 +254,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           Resource: "*"
         },
         {
+          Sid: "ManageELBAndTargetGroupTags",
           Effect: "Allow",
           Action: [
             "elasticloadbalancing:AddTags",
@@ -260,6 +273,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           }
         },
         {
+          Sid: "ManageListenerAndRuleTags",
           Effect: "Allow",
           Action: [
             "elasticloadbalancing:AddTags",
@@ -273,6 +287,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           ]
         },
         {
+          Sid: "ManageELBAndTargetGroupSettings",
           Effect: "Allow",
           Action: [
             "elasticloadbalancing:ModifyLoadBalancerAttributes",
@@ -291,7 +306,21 @@ export function createIamRoles(scope: Construct): EksIamRoles {
             }
           }
         },
+        // Add permissions for AddTags specifically for ArgoCD resources
+        // This is more secure than a blanket "*" permission
         {
+          Sid: "ManageArgoCDResourceTags",
+          Effect: "Allow",
+          Action: [
+            "elasticloadbalancing:AddTags"
+          ],
+          Resource: [
+            "arn:aws:elasticloadbalancing:*:*:targetgroup/k8s-argocd-*/*",
+            "arn:aws:elasticloadbalancing:*:*:loadbalancer/*/k8s-argocd-*/*"
+          ]
+        },
+        {
+          Sid: "ManageTargetGroupRegistrations",
           Effect: "Allow",
           Action: [
             "elasticloadbalancing:RegisterTargets",
@@ -300,6 +329,7 @@ export function createIamRoles(scope: Construct): EksIamRoles {
           Resource: "arn:aws:elasticloadbalancing:*:*:targetgroup/*/*"
         },
         {
+          Sid: "ManageListenersAndRules",
           Effect: "Allow",
           Action: [
             "elasticloadbalancing:SetWebAcl",
@@ -349,20 +379,33 @@ export function createIamRoles(scope: Construct): EksIamRoles {
   
   // Function to update the EBS CSI Driver role trust policy with the correct OIDC provider
   const updateEbsCsiDriverRoleTrustPolicy = (cluster: EksCluster) => {
-    const oidcProvider = cluster.identity.get(0).oidc.get(0).issuer.replace("https://", "");
-    
+    // Extract the OIDC URL - CDKTF handles this as a token internally
+    const oidcIssuerUrl = cluster.identity.get(0).oidc.get(0).issuer;
+    const oidcIssuer = Fn.replace(oidcIssuerUrl, "https://", "");
+    const oidcIssuerArn = Fn.join("", [
+      "arn:aws:iam::",
+      caller.accountId,
+      ":oidc-provider/",
+      oidcIssuer
+    ]);
+   const conditionVar = Fn.join("", [
+      oidcIssuer,
+      ":sub"
+    ])
+
     // Create IAM policy document for EBS CSI Driver with proper OIDC trust relationship
+    // Use string interpolation with the Fn.replace function to ensure https:// is removed
     const ebsCsiDriverTrustPolicy = new DataAwsIamPolicyDocument(scope, "ebsCsiDriverTrustPolicy", {
       statement: [{
         actions: ["sts:AssumeRoleWithWebIdentity"],
         effect: "Allow",
         principals: [{
           type: "Federated",
-          identifiers: [`arn:aws:iam::${caller.accountId}:oidc-provider/${oidcProvider}`]
+          identifiers: [oidcIssuerArn]
         }],
         condition: [{
           test: "StringEquals",
-          variable: `${oidcProvider}:sub`,
+          variable: conditionVar,
           values: ["system:serviceaccount:kube-system:ebs-csi-controller-sa"]
         }]
       }]
@@ -374,7 +417,19 @@ export function createIamRoles(scope: Construct): EksIamRoles {
   
   // Function to update the Load Balancer Controller role trust policy with the correct OIDC provider
   const updateLbControllerRoleTrustPolicy = (cluster: EksCluster) => {
-    const oidcProvider = cluster.identity.get(0).oidc.get(0).issuer.replace("https://", "");
+    // Extract the OIDC URL - CDKTF handles this as a token internally
+    const oidcIssuerUrl = cluster.identity.get(0).oidc.get(0).issuer;
+    const oidcIssuer = Fn.replace(oidcIssuerUrl, "https://", "");
+    const oidcIssuerArn = Fn.join("", [
+      "arn:aws:iam::",
+      caller.accountId,
+      ":oidc-provider/",
+      oidcIssuer
+    ]);
+    const conditionVar = Fn.join("", [
+      oidcIssuer,
+      ":sub"
+    ]);
     
     // Create IAM policy document for Load Balancer Controller with proper OIDC trust relationship
     const lbControllerTrustPolicy = new DataAwsIamPolicyDocument(scope, "lbControllerTrustPolicy", {
@@ -383,11 +438,11 @@ export function createIamRoles(scope: Construct): EksIamRoles {
         effect: "Allow",
         principals: [{
           type: "Federated",
-          identifiers: [`arn:aws:iam::${caller.accountId}:oidc-provider/${oidcProvider}`]
+          identifiers: [oidcIssuerArn]
         }],
         condition: [{
           test: "StringEquals",
-          variable: `${oidcProvider}:sub`,
+          variable: conditionVar,
           values: ["system:serviceaccount:kube-system:aws-load-balancer-controller"]
         }]
       }]
@@ -397,12 +452,37 @@ export function createIamRoles(scope: Construct): EksIamRoles {
     lbControllerRole.assumeRolePolicy = lbControllerTrustPolicy.json;
   };
 
+  // Function to create the OIDC provider in AWS IAM
+  // This is critical for service accounts to assume IAM roles
+  const createOidcProvider = (cluster: EksCluster): IamOpenidConnectProvider => {
+    // Extract OIDC issuer URL from the EKS cluster - keep WITH https:// for this resource
+    const oidcIssuerUrl = cluster.identity.get(0).oidc.get(0).issuer;
+    
+    // Get the thumbprint - in production, you'd want to fetch this dynamically
+    // For now, we'll use a hardcoded thumbprint for the AWS OIDC provider
+    // More info: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc_verify-thumbprint.html
+    // NOTE: This is not ideal and in production should be retrieved dynamically
+    const thumbprint = ["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"];
+    
+    // Create the IAM OIDC provider - IMPORTANT: AWS requires full URL WITH https:// here
+    // This is the opposite of the trust policy which requires NO https:// prefix
+    return new IamOpenidConnectProvider(scope, "eks-oidc-provider", {
+      clientIdList: ["sts.amazonaws.com"],
+      thumbprintList: thumbprint,
+      url: oidcIssuerUrl,
+      tags: {
+        Name: Fn.join("-", [Config.cluster.name, "oidc-provider"]),
+      }
+    });
+  };
+
   return { 
     eksRole, 
     nodeRole, 
     ebsCsiDriverRole,
     lbControllerRole, 
     updateEbsCsiDriverRoleTrustPolicy,
-    updateLbControllerRoleTrustPolicy 
+    updateLbControllerRoleTrustPolicy,
+    createOidcProvider
   };
 }

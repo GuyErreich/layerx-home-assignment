@@ -1,5 +1,5 @@
 import { Construct } from "constructs";
-import { App, TerraformStack, TerraformOutput, S3Backend, TerraformResource } from "cdktf";
+import { App, TerraformStack, TerraformOutput, S3Backend, TerraformResource, Fn } from "cdktf";
 import { VpcModule, VpcModuleOutput } from "./lib/vpc";
 import { createIamRoles, EksIamRoles } from "./lib/iam";
 import { createEks, EksResources } from "./lib/eks";
@@ -18,7 +18,7 @@ class LayerxEksStack extends TerraformStack {
     // Uncomment and configure this for production use
     // new S3Backend(this, {
     //   bucket: "terraform-state-backend-shared", // <-- Change to your S3 bucket name
-    //   key: `${Config.cluster.name}/terraform.tfstate`,
+    //   key: Fn.join("/", [Config.cluster.name, "terraform.tfstate"]),
     //   region: "us-east-1", // or use your preferred region
     //   encrypt: true,
     //   profile: "default" // or your named AWS profile
@@ -51,17 +51,27 @@ class LayerxEksStack extends TerraformStack {
       dependsOn: [vpc.vpc, ...vpc.publicSubnets] // Explicit dependency on VPC resources
     });
     
-    // Update the EBS CSI Driver role trust policy with the proper OIDC provider
-    if (iam.updateEbsCsiDriverRoleTrustPolicy && iam.ebsCsiDriverRole) {
-      iam.updateEbsCsiDriverRoleTrustPolicy(eks.cluster);
-    }
+    // Create the OIDC provider in AWS IAM first
+    let eksOidcProvider;
+    if (iam.createOidcProvider) {
+      eksOidcProvider = iam.createOidcProvider(eks.cluster);
+      
+      // Only update the trust policies after the OIDC provider is created
+      // This ensures the role can find the OIDC provider
+      
+      // Update the EBS CSI Driver role trust policy with the proper OIDC provider
+      if (iam.updateEbsCsiDriverRoleTrustPolicy && iam.ebsCsiDriverRole) {
+        iam.updateEbsCsiDriverRoleTrustPolicy(eks.cluster);
+      }
 
-    // Update the Load Balancer Controller role trust policy with the proper OIDC provider
-    if (iam.updateLbControllerRoleTrustPolicy && iam.lbControllerRole) {
-      iam.updateLbControllerRoleTrustPolicy(eks.cluster);
+      // Update the Load Balancer Controller role trust policy with the proper OIDC provider
+      if (iam.updateLbControllerRoleTrustPolicy && iam.lbControllerRole) {
+        iam.updateLbControllerRoleTrustPolicy(eks.cluster);
+      }
     }
     
-    // Install native EKS add-ons (EBS CSI Driver, VPC CNI) first
+    // Install native EKS add-ons (EBS CSI Driver) first
+    // Core add-ons like VPC CNI, CoreDNS and kube-proxy are managed by bootstrapSelfManagedAddons
     // This ensures the cluster is fully functional before we try to use K8s providers
     const eksAddons: EksAddonsResources = createEksAddons(this, {
       clusterName: eks.cluster.name,
@@ -161,12 +171,14 @@ class LayerxEksStack extends TerraformStack {
     });
     
     new TerraformOutput(this, "kubeconfig_command", {
-      value: `aws eks update-kubeconfig --name ${eks.cluster.name} --region $(aws configure get region)`,
+      value: Fn.join("", ["aws eks update-kubeconfig --name ", eks.cluster.name, " --region $(aws configure get region)"]),
       description: "Command to configure kubectl for the cluster"
     });
   }
 }
 
 const app = new App();
+// Static configuration is fine with string interpolation for stack names
+// CDKTF doesn't support Fn functions in the stack ID
 new LayerxEksStack(app, `${Config.cluster.name}-stack`);
 app.synth();

@@ -47,6 +47,11 @@ export function deployAwsLoadBalancerController(scope: Construct, options: AwsLo
     // Configure timeouts to give CRDs time to install
     timeout: 900, // 15 minutes
     
+    // Force install even if previous installation exists
+    atomic: true,
+    cleanupOnFail: true,
+    wait: true, // Wait for resources to be ready before marking the release as successful
+    
     // Values to customize the AWS Load Balancer Controller installation
     values: [
       JSON.stringify({
@@ -75,15 +80,15 @@ export function deployAwsLoadBalancerController(scope: Construct, options: AwsLo
         enableWaf: false,    // AWS WAF for web application firewall (additional cost)
         enableWafv2: false,  // AWS WAFv2 (additional cost)
         
-        // Set more generous resource limits for stability
+        // Set more conservative resource requests to ensure pods can be scheduled
         resources: {
           requests: {
-            cpu: "100m",
-            memory: "128Mi"
+            cpu: "50m",
+            memory: "64Mi"
           },
           limits: {
-            cpu: "300m",
-            memory: "512Mi"
+            cpu: "200m",
+            memory: "256Mi"
           }
         },
         

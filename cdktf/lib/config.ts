@@ -31,11 +31,11 @@ export const Config = {
   
   // Node group configuration
   nodeGroup: {
-    instanceType: "t3.micro",
+    instanceType: "t3.small",  // Upgraded from t3.micro to support more pods per node
     diskSize: 20,
     minSize: 2,
-    desiredSize: 3,
-    maxSize: 4,
+    desiredSize: 2,
+    maxSize: 8,
   },
 
   // Namespaces to create

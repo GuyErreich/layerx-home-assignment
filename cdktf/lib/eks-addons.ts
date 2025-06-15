@@ -3,7 +3,7 @@ import { EksAddon } from "../.gen/providers/aws/eks-addon";
 
 export interface EksAddonsResources {
   ebsCsiDriver?: EksAddon;
-  vpcCni?: EksAddon;
+  // VPC CNI is now managed by bootstrapSelfManagedAddons
 }
 
 export interface EksAddonsOptions {
@@ -23,15 +23,8 @@ export function createEksAddons(scope: Construct, options: EksAddonsOptions): Ek
     resolveConflictsOnUpdate: "PRESERVE",
   });
 
-  // Install VPC CNI add-on
-  const vpcCni = new EksAddon(scope, "vpc-cni", {
-    addonName: "vpc-cni",
-    clusterName: options.clusterName,
-    addonVersion: "v1.19.5-eksbuild.3", // Specify a compatible version 
-    // Use the recommended attributes (not the deprecated resolve_conflicts)
-    resolveConflictsOnCreate: "OVERWRITE",
-    resolveConflictsOnUpdate: "PRESERVE",
-  });
+  // VPC CNI add-on will be managed by bootstrapSelfManagedAddons
+  // No need to manually install it
 
-  return { ebsCsiDriver, vpcCni };
+  return { ebsCsiDriver };
 }

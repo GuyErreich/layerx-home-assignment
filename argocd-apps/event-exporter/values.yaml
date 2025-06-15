@@ -1,0 +1,24 @@
+# Custom values for the event-exporter chart
+# These will override the default values from the base chart
+
+kubernetes-event-exporter:
+  # All values under this key will be passed to the base chart
+  config:
+    logLevel: info
+    logFormat: json
+    receivers:
+      - name: default
+        stdout: {}
+      - name: slack
+        slack:
+          webhook: ${SLACK_WEBHOOK_URL}
+          channel: "#k8s-events"
+          message: "Cluster: {{ .Cluster }} - {{ .Message }}"
+    route:
+      routes:
+        - match:
+            - receiver: default
+        - match:
+            - kind: Pod
+              reason: Failed
+          receiver: slack
