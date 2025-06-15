@@ -1,0 +1,7 @@
+# Ignore local secrets
+secrets-local/
+
+# Ignore temporary files
+*.swp
+*~
+.DS_Store

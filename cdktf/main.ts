@@ -6,6 +6,7 @@ import { createEks, EksResources } from "./lib/eks";
 import { createEksAddons, EksAddonsResources } from "./lib/eks-addons";
 import { deployArgoCD, ArgoCDResources } from "./lib/argocd";
 import { deployAwsLoadBalancerController, AwsLoadBalancerControllerResources } from "./lib/aws-load-balancer-controller";
+import { deployExternalSecretsOperator, ExternalSecretsOperatorResources } from "./lib/external-secrets";
 import { Config } from "./lib/config";
 import { DataAwsRegion } from "./.gen/providers/aws/data-aws-region";
 import { ProviderManager } from "./lib/providers";
@@ -118,11 +119,23 @@ class LayerxEksStack extends TerraformStack {
       dependsOn: [eks.cluster, eks.nodeGroup]  // Add explicit dependency on the delay
     });
 
-    // Deploy ArgoCD using Helm (after AWS Load Balancer Controller)
+    // Deploy External Secrets Operator using Helm
+    // Using the shared providers for consistency
+    const externalSecrets: ExternalSecretsOperatorResources = deployExternalSecretsOperator(this, {
+      dependsOn: [awsLbController.awsLoadBalancerControllerRelease],
+      aws: {
+        region: region.name, // Use the current AWS region
+        service: "SecretsManager" // Default to SecretsManager
+      },
+      // Explicitly pass the Helm provider to ensure consistent authentication
+      helmProvider: ProviderManager.getHelmProvider()
+    });
+
+    // Deploy ArgoCD using Helm (after AWS Load Balancer Controller and External Secrets Operator)
     // Also using the shared providers for consistency
     const argocd: ArgoCDResources = deployArgoCD(this, {
       eksCluster: eks.cluster,
-      dependsOn: [awsLbController.awsLoadBalancerControllerRelease] // Ensure ArgoCD is deployed after ALB Controller
+      dependsOn: [awsLbController.awsLoadBalancerControllerRelease, externalSecrets.release] // Ensure ArgoCD is deployed after ALB Controller and External Secrets
     });
     
     // Note: We've disabled EKS Auto Mode features (computeConfig, storageConfig, elasticLoadBalancing)
@@ -144,6 +157,15 @@ class LayerxEksStack extends TerraformStack {
     // 3. AWS Load Balancer Controller (as Helm chart)
     // 4. ArgoCD (as Helm chart, depends on AWS Load Balancer Controller)
     
+    // Infrastructure components:
+    // 1. EKS Cluster: Kubernetes control plane
+    // 2. Node Group: Worker nodes
+    // 3. EBS CSI Driver: Enables persistent storage via native EKS addon
+    // 4. VPC CNI: Manages pod networking via native EKS addon
+    // 5. AWS Load Balancer Controller: Manages external-to-internal traffic (north-south)
+    // 6. External Secrets Operator: Manages secrets from external providers like AWS Secrets Manager
+    // 7. ArgoCD: GitOps deployment platform
+    // 
     // Future components that could be managed by ArgoCD:
     // 1. Karpenter: Will handle auto-scaling
     // 

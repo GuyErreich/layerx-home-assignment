@@ -553,7 +553,8 @@
         "cleanup_on_fail": false,
         "create_namespace": true,
         "depends_on": [
-          "helm_release.aws-load-balancer-controller"
+          "helm_release.aws-load-balancer-controller",
+          "helm_release.external-secrets-operator"
         ],
         "name": "argocd",
         "namespace": "argocd",
@@ -595,6 +596,29 @@
         ],
         "version": "1.7.0",
         "wait": true
+      },
+      "external-secrets-operator": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/external-secrets-operator",
+            "uniqueId": "external-secrets-operator"
+          }
+        },
+        "atomic": true,
+        "chart": "external-secrets",
+        "create_namespace": true,
+        "depends_on": [
+          "helm_release.aws-load-balancer-controller"
+        ],
+        "name": "external-secrets",
+        "namespace": "external-secrets",
+        "provider": "helm",
+        "repository": "https://charts.external-secrets.io",
+        "timeout": 300,
+        "values": [
+          "{\"installCRDs\":true,\"webhook\":{\"port\":9443},\"certController\":{\"enabled\":true},\"serviceAccount\":{\"create\":true,\"name\":\"external-secrets\"},\"provider\":{\"aws\":{\"enabled\":true,\"region\":\"${data.aws_region.current-region.name}\",\"service\":\"SecretsManager\"}},\"controller\":{\"leaderElect\":true,\"replicas\":1}}"
+        ],
+        "version": "v0.17.1-rc1"
       }
     }
   },

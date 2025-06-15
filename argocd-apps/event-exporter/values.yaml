@@ -1,6 +1,20 @@
 # Custom values for the event-exporter chart
 # These will override the default values from the base chart
 
+# Service account configuration for AWS Secrets Manager access
+# This ServiceAccount will be annotated with the IAM role for fetching secrets
+serviceAccount:
+  name: event-exporter
+  roleArn: "arn:aws:iam::123456789012:role/layerx-eks-event-exporter-role" # Replace with your actual IAM role ARN
+
+# External Secrets configuration
+# This tells the External Secrets Operator which AWS secret to fetch
+externalSecrets:
+  enabled: true
+  region: "eu-central-1"  # Region where your secrets are stored
+  secretName: "home-assignments/layerx"  # Name of your secret in AWS Secrets Manager
+  # Note: The AWS secret should contain a key "slack-webhook-url" with the webhook URL
+
 kubernetes-event-exporter:
   # All values under this key will be passed to the base chart
   config:
@@ -11,9 +25,16 @@ kubernetes-event-exporter:
         stdout: {}
       - name: slack
         slack:
-          webhook: ${SLACK_WEBHOOK_URL}
+          # Reference the webhook from the Kubernetes Secret
+          # This Secret is created by the ExternalSecret in templates/external-secrets.yaml
+          # which fetches the value from AWS Secrets Manager
+          webhook:
+            valueFrom:
+              secretKeyRef:
+                name: slack-webhook  # Must match the target.name in ExternalSecret
+                key: url             # Must match the secretKey in ExternalSecret
           channel: "#k8s-events"
-          message: "Cluster: {{ .Cluster }} - {{ .Message }}"
+          message: "🔔 *Kubernetes Event Alert*\n*Cluster:* {{ .Cluster }}\n*Type:* {{ .Type }}\n*Reason:* {{ .Reason }}\n*Component:* {{ .Component }}\n*Object:* {{ .InvolvedObject.Kind }}/{{ .InvolvedObject.Name }}\n*Message:* {{ .Message }}"
     route:
       routes:
         - match:

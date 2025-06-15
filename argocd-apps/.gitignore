@@ -1,0 +1,11 @@
+# Ignore the slack webhook secret with actual values
+secrets/slack-webhook-secret.yaml
+
+# Common development files
+.env
+*.swp
+.DS_Store
+
+# Helm-related
+charts/
+*.tgz
