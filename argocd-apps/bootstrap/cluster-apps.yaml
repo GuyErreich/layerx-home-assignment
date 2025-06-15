@@ -6,8 +6,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/yourusername/layerx-home-assignment.git
-    targetRevision: HEAD
+    repoURL: https://github.com/GuyErreich/layerx-home-assignment.git
+    targetRevision: master
     path: argocd-apps
     directory:
       recurse: true
@@ -20,3 +20,15 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    retry:
+      limit: 5         # Retry up to 5 times on failure
+      backoff:
+        duration: 5s   # Initial backoff duration
+        factor: 2      # Factor by which to increase the backoff duration
+        maxDuration: 3m # Maximum backoff duration  
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      # Not using ApplyOutOfSyncOnly for bootstrap app to ensure complete syncs

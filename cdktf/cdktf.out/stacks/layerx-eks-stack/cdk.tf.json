@@ -10,7 +10,8 @@
         "cluster_ca_certificate": "cluster_ca_certificate",
         "cluster_endpoint": "cluster_endpoint",
         "cluster_name": "cluster_name",
-        "kubeconfig_command": "kubeconfig_command"
+        "kubeconfig_command": "kubeconfig_command",
+        "monitoring-event-exporter-role-arn": "monitoring-event-exporter-role-arn"
       }
     }
   },
@@ -27,6 +28,14 @@
       }
     },
     "aws_caller_identity": {
+      "app-iam-caller-identity": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/app-iam-caller-identity",
+            "uniqueId": "app-iam-caller-identity"
+          }
+        }
+      },
       "current-identity": {
         "//": {
           "metadata": {
@@ -151,6 +160,10 @@
     "kubeconfig_command": {
       "description": "Command to configure kubectl for the cluster",
       "value": "${join(\"\", [\"aws eks update-kubeconfig --name \", aws_eks_cluster.eksCluster.name, \" --region $(aws configure get region)\"])}"
+    },
+    "monitoring-event-exporter-role-arn": {
+      "description": "${join(\"\", [\"ARN of the IAM role for \", \"event-exporter\", \" in namespace \", \"monitoring\"])}",
+      "value": "${aws_iam_role.app-iam-monitoring-event-exporter_role_BB157BD4.arn}"
     }
   },
   "provider": {
@@ -309,6 +322,17 @@
       }
     },
     "aws_iam_role": {
+      "app-iam-monitoring-event-exporter_role_BB157BD4": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/app-iam-monitoring-event-exporter/role",
+            "uniqueId": "app-iam-monitoring-event-exporter_role_BB157BD4"
+          }
+        },
+        "assume_role_policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Federated\":\"${join(\"\", [\"arn:aws:iam::\", data.aws_caller_identity.app-iam-caller-identity.account_id, \":oidc-provider/\", replace(aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer, \"https://\", \"\")])}\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"${replace(aws_eks_cluster.eksCluster.identity[0].oidc[0].issuer, \"https://\", \"\")}:sub\":\"system:serviceaccount:monitoring:event-exporter\"}}}]}",
+        "description": "IAM role for event-exporter in the monitoring namespace",
+        "name": "${join(\"-\", [replace(\"layerx-eks\", \"*\", \"wildcard\"), replace(\"monitoring\", \"*\", \"wildcard\"), replace(\"event-exporter\", \"*\", \"wildcard\"), replace(\"role\", \"*\", \"wildcard\")])}"
+      },
       "ebsCsiDriverRole": {
         "//": {
           "metadata": {
@@ -348,6 +372,19 @@
         },
         "assume_role_policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":\"sts:AssumeRole\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ec2.amazonaws.com\"}}]}",
         "name": "layerx-eks-node-role"
+      }
+    },
+    "aws_iam_role_policy": {
+      "app-iam-monitoring-event-exporter_event-exporter-secrets-policy_289313DA": {
+        "//": {
+          "metadata": {
+            "path": "layerx-eks-stack/app-iam-monitoring-event-exporter/event-exporter-secrets-policy",
+            "uniqueId": "app-iam-monitoring-event-exporter_event-exporter-secrets-policy_289313DA"
+          }
+        },
+        "name": "${join(\"-\", [replace(\"layerx-eks\", \"*\", \"wildcard\"), replace(\"monitoring\", \"*\", \"wildcard\"), replace(\"event-exporter\", \"*\", \"wildcard\"), replace(\"secrets-access\", \"*\", \"wildcard\")])}",
+        "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\",\"secretsmanager:DescribeSecret\"],\"Resource\":[\"arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.app-iam-caller-identity.account_id}:secret:home-assignments/layerx\"]}]}",
+        "role": "${aws_iam_role.app-iam-monitoring-event-exporter_role_BB157BD4.id}"
       }
     },
     "aws_iam_role_policy_attachment": {

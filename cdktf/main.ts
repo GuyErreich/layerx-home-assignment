@@ -7,6 +7,7 @@ import { createEksAddons, EksAddonsResources } from "./lib/eks-addons";
 import { deployArgoCD, ArgoCDResources } from "./lib/argocd";
 import { deployAwsLoadBalancerController, AwsLoadBalancerControllerResources } from "./lib/aws-load-balancer-controller";
 import { deployExternalSecretsOperator, ExternalSecretsOperatorResources } from "./lib/external-secrets";
+import { createAppIamRoles, AppIamRolesOutput  } from "./lib/app-iam";
 import { Config } from "./lib/config";
 import { DataAwsRegion } from "./.gen/providers/aws/data-aws-region";
 import { ProviderManager } from "./lib/providers";
@@ -130,6 +131,13 @@ class LayerxEksStack extends TerraformStack {
       // Explicitly pass the Helm provider to ensure consistent authentication
       helmProvider: ProviderManager.getHelmProvider()
     });
+
+    // Create IAM roles for applications that need AWS service access
+    // These roles follow the IRSA (IAM Roles for Service Accounts) pattern
+    // All roles are defined in cdktf/lib/app-iam/config.ts
+    
+    // Create all application IAM roles from configuration
+    const appRoles: AppIamRolesOutput = createAppIamRoles(this, eks.cluster);
 
     // Deploy ArgoCD using Helm (after AWS Load Balancer Controller and External Secrets Operator)
     // Also using the shared providers for consistency

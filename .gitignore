@@ -5,3 +5,11 @@ secrets-local/
 *.swp
 *~
 .DS_Store
+
+# Terraform / CDKTF files
+cdktf/cdktf.out/
+cdktf/.terraform/
+cdktf/.gen/
+**/.terraform/
+*.tfstate
+*.tfstate.*
