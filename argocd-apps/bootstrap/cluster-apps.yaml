@@ -13,9 +13,9 @@ spec:
     targetRevision: master
     path: argocd-apps
     directory:
-      recurse: true
+      recurse: false
       jsonnet: {}
-      exclude: "bootstrap/*,../cdktf/**,**/templates/**"
+      include: '{event-exporter/application.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
