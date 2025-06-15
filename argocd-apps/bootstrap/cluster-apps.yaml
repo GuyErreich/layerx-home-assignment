@@ -12,7 +12,7 @@ spec:
     directory:
       recurse: true
       jsonnet: {}
-      exclude: "bootstrap/*"
+      exclude: "bootstrap/*,../cdktf/**"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

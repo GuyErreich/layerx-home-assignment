@@ -8,8 +8,19 @@ secrets-local/
 
 # Terraform / CDKTF files
 cdktf/cdktf.out/
+**/cdktf.out/
 cdktf/.terraform/
 cdktf/.gen/
 **/.terraform/
-*.tfstate
-*.tfstate.*
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/*.tfstate
+**/*.tfstate.*
+**/terraform.tfvars
+**/terraform.tfplan
+**/plan
+**/crash.log
+**/*.tfvars.json
+**/.terragrunt-cache/
+**/cdk.tf.json
