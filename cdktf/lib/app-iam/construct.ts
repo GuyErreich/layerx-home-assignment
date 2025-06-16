@@ -89,7 +89,7 @@ export class AppIamRole extends Construct {
         
         // Otherwise, construct the ARN without automatically appending a wildcard
         // Let users specify wildcards explicitly in their configs
-        return `arn:aws:secretsmanager:${this.props.region}:${this.props.accountId}:secret:${secret}`;
+        return `arn:aws:secretsmanager:${this.props.region}:${this.props.accountId}:secret:${secret}-*`;
       });
 
       // Create the policy for Secrets Manager access with a unique name
