@@ -40,21 +40,25 @@ kubernetes-event-exporter:
           message: "🔔 *Kubernetes Event Alert*\n*Cluster:* {{ .Cluster }}\n*Type:* {{ .Type }}\n*Reason:* {{ .Reason }}\n*Component:* {{ .Component }}\n*Object:* {{ .InvolvedObject.Kind }}/{{ .InvolvedObject.Name }}\n*Message:* {{ .Message }}"
     route:
       routes:
-        - match:
-            - receiver: default
-        - match:
-            - kind: Pod
-              reason: Failed
-          receiver: slack
-        - match:
-            - kind: Pod
-              reason: FailedScheduling
-          receiver: slack
-        - match:
-            - kind: Pod
-              reason: BackOff
-          receiver: slack
-        - match:
-            - kind: Pod
-              reason: CrashLoopBackOff
-          receiver: slack
+      - match:
+        - receiver: default
+      - match:
+        - kind: Pod
+          reason: Failed
+        receiver: slack
+      - match:
+        - kind: Pod
+          reason: FailedScheduling
+        receiver: slack
+      - match:
+        - kind: Pod
+          reason: BackOff
+        receiver: slack
+      - match:
+        - kind: Pod
+          reason: CrashLoopBackOff
+        receiver: slack
+      - match:
+        - kind: Pod
+          type: Warning
+        receiver: slack
