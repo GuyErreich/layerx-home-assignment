@@ -33,7 +33,7 @@ kubernetes-event-exporter:
             Content-Type: "application/json"
             User-Agent: "kubernetes-event-exporter"
           layout:  # Customize the JSON payload sent to Slack
-            text: "🔔 *Kubernetes Event Alert*\n*Cluster:* {{ .Cluster }}\n*Type:* {{ .Type }}\n*Reason:* {{ .Reason }}\n*Namespace:* {{ .InvolvedObject.Namespace }}\n*Object:* {{ .InvolvedObject.Kind }}/{{ .InvolvedObject.Name }}"
+            text: "🔔 *Kubernetes Event Alert*\n*Type:* {{ .Type }}\n*Reason:* {{ .Reason }}\n*Namespace:* {{ .InvolvedObject.Namespace }}\n*Object:* {{ .InvolvedObject.Kind }}/{{ .InvolvedObject.Name }}"
     route:
       routes:
         - match:
