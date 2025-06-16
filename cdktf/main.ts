@@ -28,7 +28,7 @@ class LayerxEksStack extends TerraformStack {
       cidr: Config.vpc.cidrBlock,
       azs: Config.vpc.numSubnets,
       publicSubnets: true,
-      eksClusterName: Config.cluster.name, // Used for proper tagging
+      eksClusterName: Config.cluster.name,
     });
     
     const vpc: VpcModuleOutput = vpcModule.getOutputs();
@@ -41,7 +41,7 @@ class LayerxEksStack extends TerraformStack {
       eksRoleArn: iam.eksRole.arn,
       nodeRoleArn: iam.nodeRole.arn,
       subnetIds: vpc.publicSubnets.map(subnet => subnet.id),
-      dependsOn: [vpc.vpc, ...vpc.publicSubnets] // Explicit dependency on VPC resources
+      dependsOn: [vpc.vpc, ...vpc.publicSubnets]
     });
     
     // Create the OIDC provider in AWS IAM first
@@ -49,7 +49,6 @@ class LayerxEksStack extends TerraformStack {
     if (iam.createOidcProvider) {
       eksOidcProvider = iam.createOidcProvider(eks.cluster);
       
-      // Only update the trust policies after the OIDC provider is created
       if (iam.updateEbsCsiDriverRoleTrustPolicy && iam.ebsCsiDriverRole) {
         iam.updateEbsCsiDriverRoleTrustPolicy(eks.cluster);
       }
@@ -68,13 +67,16 @@ class LayerxEksStack extends TerraformStack {
     // Initialize Kubernetes and Helm providers
     ProviderManager.initializeK8sProviders(this, eks.cluster);
     
+    // Create EBS storage class for persistent volumes
+    const storageClass = createEbsStorageClass(this);
+    
     // Deploy AWS Load Balancer Controller using Helm
     const awsLbController: AwsLoadBalancerControllerResources = deployAwsLoadBalancerController(this, {
       eksCluster: eks.cluster,
       serviceAccountRoleArn: iam.lbControllerRole?.arn,
       vpcId: vpc.vpc.id,
       region: region.name,
-      dependsOn: [eks.cluster, eks.nodeGroup]
+      dependsOn: [eks.cluster, eks.nodeGroup, ...(eksAddons.ebsCsiDriver ? [eksAddons.ebsCsiDriver] : [])]
     });
 
     // Deploy External Secrets Operator using Helm
@@ -90,15 +92,13 @@ class LayerxEksStack extends TerraformStack {
     // Create IAM roles for applications
     const appRoles: AppIamRolesOutput = createAppIamRoles(this, eks.cluster);
 
-    // Create EBS storage class for persistent volumes
-    const storageClass = createEbsStorageClass(this);
-
-    // Deploy ArgoCD using Helm
+    // Deploy ArgoCD using Helm - will be the last to be created and first to be destroyed
     const argocd: ArgoCDResources = deployArgoCD(this, {
       eksCluster: eks.cluster,
       dependsOn: [
         awsLbController.awsLoadBalancerControllerRelease, 
-        externalSecrets.release
+        externalSecrets.release,
+        storageClass
       ],
       storageClass: storageClass
     });
