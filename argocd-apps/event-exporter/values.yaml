@@ -31,11 +31,7 @@ kubernetes-event-exporter:
           # Reference the token from the Kubernetes Secret
           # This Secret is created by the ExternalSecret in templates/external-secrets.yaml
           # which fetches the value from AWS Secrets Manager
-          token:
-            valueFrom:
-              secretKeyRef:
-                name: slack-webhook  # Must match the target.name in ExternalSecret
-                key: token             # Must match the secretKey in ExternalSecret
+          token: "${SLACK_TOKEN}"  # Will be replaced with the token from the secret
           channel: "#k8s-events"
           message: "🔔 *Kubernetes Event Alert*\n*Cluster:* {{ .Cluster }}\n*Type:* {{ .Type }}\n*Reason:* {{ .Reason }}"
           color: "danger"
@@ -69,3 +65,11 @@ kubernetes-event-exporter:
         - kind: Pod
           type: Warning
         receiver: slack
+  
+  # Add environment variables to inject the token from the secret
+  extraEnvVars:
+    - name: SLACK_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: slack-webhook
+          key: token
