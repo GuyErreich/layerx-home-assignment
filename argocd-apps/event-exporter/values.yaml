@@ -43,28 +43,16 @@ kubernetes-event-exporter:
             object: "{{ .InvolvedObject.Kind }}/{{ .InvolvedObject.Name }}"
     route:
       routes:
-      - match:
         - receiver: default
-      - match:
-        - kind: Pod
-          reason: Failed
-        receiver: slack
-      - match:
-        - kind: Pod
-          reason: FailedScheduling
-        receiver: slack
-      - match:
-        - kind: Pod
-          reason: BackOff
-        receiver: slack
-      - match:
-        - kind: Pod
-          reason: CrashLoopBackOff
-        receiver: slack
-      - match:
-        - kind: Pod
-          type: Warning
-        receiver: slack
+          # Match all events that are not handled by the Slack receiver
+          match:
+            - type: Normal
+        - receiver: slack
+          # Match all events that should be sent to Slack
+          match:
+            - type: Warning
+            - type: Error
+            - type: Critical
   
   # Add environment variables to inject the token from the secret
   extraEnvVars:
