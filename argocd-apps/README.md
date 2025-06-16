@@ -1,6 +1,6 @@
-# ArgoCD Applications
+# ArgoCD Applications for LayerX Home Assignment
 
-This directory contains GitOps configurations for applications deployed via ArgoCD.
+This directory contains GitOps configurations for applications deployed via ArgoCD. The project uses an "App of Apps" pattern to enable declarative management of all Kubernetes applications.
 
 ## Directory Structure
 
@@ -47,8 +47,39 @@ To update an existing application:
 To bootstrap the entire setup:
 
 ```bash
-# Apply the bootstrap application
+# Apply the bootstrap application with the full path
 kubectl apply -f argocd-apps/bootstrap/cluster-apps.yaml
 
 # ArgoCD will then handle deploying all other applications
 ```
+
+## Accessing ArgoCD
+
+1. Get the ArgoCD service URL:
+   ```bash
+   kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+   ```
+
+2. Access the UI with default credentials:
+   - Username: `admin`
+   - Password: `argocd`
+
+## Testing Event Notifications
+
+The event-exporter application is configured to send notifications to Slack for certain Kubernetes events. To test this:
+
+1. Create a pod with an invalid image to trigger an error:
+   ```bash
+   kubectl run test-failure --image=non-existent-image:latest
+   ```
+
+2. Check that the event is detected:
+   ```bash
+   kubectl get events --sort-by='.lastTimestamp' | grep "Failed"
+   ```
+
+3. Verify that a notification appears in the configured Slack channel
+
+## Secret Management
+
+Some secrets like Slack webhook URLs are intentionally managed outside the GitOps workflow for security reasons, as would be appropriate in a real-world scenario.

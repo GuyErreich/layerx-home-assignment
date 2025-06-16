@@ -1,13 +1,17 @@
-# EKS Cluster Provisioning with CDK for Terraform (CDKTF)
+# CDKTF Implementation for LayerX Home Assignment
 
-This project provisions an EKS Kubernetes cluster on AWS using CDK for Terraform (CDKTF) in TypeScript, with the following features:
+This directory contains the CDKTF code that provisions the AWS EKS infrastructure, along with associated components for a GitOps-ready environment.
 
-- AWS EKS cluster with modern features (1.28 version)
-- Configurable VPC and subnets
-- Proper IAM roles and policies
-- Kubernetes provider configuration
-- ArgoCD namespaces for GitOps workflows
-- Support for kubernetes-event-exporter for Slack alerts
+## Architecture Components
+
+- **VPC**: Custom VPC with public subnets only, supporting both external and internal k8s communication
+- **EKS Cluster**: Managed Kubernetes with node groups (version 1.28) without auto-scaling (not using EKS auto mode)
+- **Storage**: S3 buckets and DynamoDB tables for application data
+- **ArgoCD**: GitOps deployment tool
+- **AWS Load Balancer Controller**: For ingress management
+- **Event Exporter**: For Kubernetes event monitoring and Slack alerts
+
+> **Note**: This implementation is designed for development purposes. For production, it would need additional components such as private subnets, Karpenter autoscaling, and stricter security measures.
 
 ## Prerequisites
 
@@ -16,79 +20,91 @@ This project provisions an EKS Kubernetes cluster on AWS using CDK for Terraform
 - AWS CLI configured with proper credentials
 - Terraform installed
 
-## Project Structure
+## Key Implementation Details
 
+### Module Structure
+The codebase is structured into logical modules:
 ```
 cdktf/
 ├── lib/
+│   ├── app-iam/      # Application-specific IAM roles and policies
+│   ├── argocd.ts     # ArgoCD installation and configuration
+│   ├── aws-load-balancer-controller.ts # AWS LB Controller setup
+│   ├── eks-addons.ts # Kubernetes add-ons
 │   ├── eks.ts        # EKS cluster and node group configuration
-│   ├── iam.ts        # IAM roles for EKS and node groups
+│   ├── providers.ts  # AWS and Kubernetes provider configuration
+│   ├── storage.ts    # S3 and DynamoDB resources
 │   └── vpc.ts        # VPC and subnet configuration
 ├── main.ts           # Main stack definition
-├── package.json      # Project dependencies
-├── cdktf.json        # CDKTF configuration
-└── tsconfig.json     # TypeScript configuration
+└── package.json      # Project dependencies
 ```
 
-## Configuration
+### Noteworthy Design Decisions
 
-### Environment Variables
+1. **Dependency Management**: Resources are explicitly ordered with proper dependencies
+2. **Finalizer Handling**: Pre-delete hooks in Helm charts to clean up resources properly
+3. **IAM with OIDC**: Service accounts use AWS IAM roles via OIDC for secure access
+4. **Manual Secret Management**: Some secrets like Slack webhook URLs are managed separately from code
 
-- `AWS_KMS_KEY_ARN` - (Optional) KMS key ARN for EKS secret encryption
-- `AWS_PROFILE` - (Optional) AWS profile to use
-- `AWS_REGION` - (Optional) AWS region to deploy to
+## Manual Configuration Notes
 
-## Deployment
+Some resources required manual setup for security or practical reasons:
+- Slack webhook URL for event notifications
+- ArgoCD repository credentials
+- External Secrets integration with AWS Secrets Manager
 
-### Install Dependencies
-
-```bash
-npm install
-```
-
-### Generate Terraform Configuration
-
-```bash
-npm run synth
-```
+## Usage Instructions
 
 ### Deploy Infrastructure
 
 ```bash
-npm run deploy
+npm install
+cdktf get      # Important: Download provider schemas first
+cdktf apply
 ```
 
-### Access Your Cluster
+### Configure kubectl
 
-After deployment, use the output command to configure kubectl:
-
+After successful deployment, configure kubectl to use the new EKS cluster:
 ```bash
-# Command will be shown in the outputs after deployment
 aws eks update-kubeconfig --name layerx-eks --region <your-region>
 ```
 
-### Clean Up Resources
+### Access ArgoCD
 
+After deployment:
+1. Get the ArgoCD URL:
+   ```bash
+   kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+   ```
+
+2. Access the UI with default credentials:
+   - Username: `admin`
+   - Password: `argocd`
+
+### Deploy Applications
+
+Deploy the bootstrap application that will configure all other apps:
 ```bash
-npm run destroy
+kubectl apply -f ../argocd-apps/bootstrap/cluster-apps.yaml
 ```
 
-## Adding ArgoCD and kubernetes-event-exporter
+### Test Event Notifications
 
-After the cluster is deployed:
-
-1. Install ArgoCD:
+Create a failing pod to test Slack notifications:
 ```bash
-kubectl create namespace argocd # if not created by Terraform
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl run test-failure --image=non-existent-image:latest
 ```
 
-2. Configure kubernetes-event-exporter via ArgoCD:
-   - Create an ArgoCD Application pointing to a repository with Helm charts
-   - Configure Slack notifications in the values.yaml
+### Clean Up
 
-## Future Enhancements
+```bash
+cdktf destroy
+```
 
-- Add Karpenter for autoscaling
-- Implement Amazon EBS CSI driver
-- Set up monitoring with Prometheus and Grafana
+## Debugging Tips
+
+- Check pod status: `kubectl get pods -A`
+- View ArgoCD application sync status: `kubectl get applications -A`
+- Check event exporter logs: `kubectl logs -n monitoring -l app=event-exporter`
+- AWS Load Balancer Controller logs: `kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller`
