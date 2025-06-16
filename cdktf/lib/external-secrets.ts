@@ -37,7 +37,7 @@ export function deployExternalSecretsOperator(scope: Construct, options: Externa
     createNamespace: false,
     repository: "https://charts.external-secrets.io",
     chart: "external-secrets",
-    version: "0.9.9",
+    version: "v0.17.1-rc1",
     
     timeout: 900,
     atomic: true,

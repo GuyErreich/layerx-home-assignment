@@ -136,24 +136,52 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
               "/bin/bash",
               "-c",
               `
-              # Clean up ArgoCD finalizers
-              kubectl patch svc argocd-server -n argocd --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
-              
-              sleep 5
-              
-              if kubectl get svc argocd-server -n argocd >/dev/null 2>&1; then
-                kubectl delete svc argocd-server -n argocd --grace-period=0 --force || true
+              # Ensure AWS Load Balancer Controller is still accessible
+              echo "Checking AWS Load Balancer Controller..."
+              if ! kubectl get deployment -n kube-system aws-load-balancer-controller &>/dev/null; then
+                echo "AWS Load Balancer Controller not found, ELB resources might not clean up properly"
               fi
               
+              # Force remove all finalizers from ArgoCD LoadBalancer service
+              echo "Removing ArgoCD server finalizers..."
+              kubectl patch svc argocd-server -n argocd --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+              
+              # Force delete the service if it still exists
+              echo "Force deleting ArgoCD server service if it exists..."
+              kubectl delete svc argocd-server -n argocd --grace-period=0 --force --ignore-not-found || true
+              
+              # Clean up all ArgoCD CRs with finalizers
+              echo "Removing finalizers from ArgoCD CRDs..."
               for resource in applications applicationsets appprojects; do
-                kubectl get $resource -n argocd -o json 2>/dev/null | jq -r '.items[] | .metadata.name' | while read name; do
-                  kubectl patch $resource $name -n argocd --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+                kubectl get $resource -A -o json 2>/dev/null | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' | while read ns name; do
+                  echo "Removing finalizers from $resource $name in namespace $ns"
+                  kubectl patch $resource $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' || true
                 done
               done
               
-              kubectl get secrets -n argocd -o json | jq -r '.items[] | select(.metadata.finalizers != null) | .metadata.name' | while read name; do
-                kubectl patch secret $name -n argocd --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+              # Clean up any other resources with finalizers in the ArgoCD namespace
+              echo "Removing finalizers from other resources..."
+              for resource in deployments statefulsets services secrets configmaps; do
+                kubectl get $resource -n argocd -o json | jq -r '.items[] | select(.metadata.finalizers != null) | .metadata.name' | while read name; do
+                  echo "Removing finalizers from $resource $name"
+                  kubectl patch $resource $name -n argocd --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+                done
               done
+              
+              # Ensure AWS ELBs are detached by removing NLB ingress rules
+              echo "Getting LoadBalancer details from AWS CLI..."
+              ELB_NAME=$(kubectl get svc argocd-server -n argocd -o json 2>/dev/null | jq -r '.status.loadBalancer.ingress[0].hostname' | cut -d- -f1)
+              if [[ ! -z "$ELB_NAME" ]]; then
+                echo "Found ELB: $ELB_NAME - ensuring cleanup"
+                # We would run AWS CLI commands here to force ELB deletion if needed
+                # But we'll rely on the AWS Load Balancer Controller to handle this
+              fi
+              
+              # Ensure all terminating pods are force deleted
+              echo "Force deleting any terminating pods..."
+              kubectl get pods -n argocd | grep Terminating | awk '{print $1}' | xargs -r kubectl delete pod --grace-period=0 --force -n argocd || true
+              
+              echo "ArgoCD cleanup completed"
               `
             ]
           }

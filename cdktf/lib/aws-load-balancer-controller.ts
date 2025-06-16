@@ -107,14 +107,54 @@ export function deployAwsLoadBalancerController(scope: Construct, options: AwsLo
               "/bin/bash",
               "-c",
               `
-              # Clean up AWS Load Balancer Controller finalizers
+              echo "Starting AWS Load Balancer Controller cleanup process..."
+              
+              # Clean up AWS Load Balancer Controller finalizers from TargetGroupBindings
+              echo "Removing finalizers from TargetGroupBindings..."
               kubectl get targetgroupbindings -A -o json | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' | while read ns name; do
-                kubectl patch targetgroupbindings $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+                echo "Processing TargetGroupBinding $name in namespace $ns"
+                kubectl patch targetgroupbindings $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' || true
               done
               
+              # Clean up all LoadBalancer service finalizers
+              echo "Removing finalizers from LoadBalancer services..."
               kubectl get svc -A -o json | jq -r '.items[] | select(.spec.type=="LoadBalancer") | .metadata.namespace + " " + .metadata.name' | while read ns name; do
-                kubectl patch service $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+                echo "Processing LoadBalancer service $name in namespace $ns"
+                kubectl patch service $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+                
+                # Force delete any stuck services
+                if kubectl get svc $name -n $ns -o json | grep -q '"phase":"Terminating"'; then
+                  echo "Force deleting stuck service $name in namespace $ns"
+                  kubectl delete service $name -n $ns --grace-period=0 --force || true
+                fi
               done
+              
+              # Clean up Ingress resources
+              echo "Removing finalizers from Ingress resources..."
+              kubectl get ingress -A -o json 2>/dev/null | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' | while read ns name; do
+                echo "Processing Ingress $name in namespace $ns"
+                kubectl patch ingress $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+              done
+              
+              # Clean up IngressClassParams
+              echo "Removing finalizers from IngressClassParams..."
+              kubectl get ingressclassparams -A -o json 2>/dev/null | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' | while read ns name; do
+                echo "Processing IngressClassParams $name in namespace $ns"
+                kubectl patch ingressclassparams $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+              done
+              
+              # Clean up any other controller related resources
+              for resource in ingressclass; do
+                echo "Checking $resource resources..."
+                kubectl get $resource -A -o json 2>/dev/null | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' | while read ns name; do
+                  if [[ "$name" == "alb" ]]; then
+                    echo "Removing finalizers from $resource $name"
+                    kubectl patch $resource $name --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+                  fi
+                done
+              done
+              
+              echo "AWS Load Balancer Controller cleanup completed"
               `
             ]
           }
