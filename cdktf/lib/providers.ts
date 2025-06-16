@@ -1,7 +1,7 @@
 import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
 import { KubernetesProvider } from "../.gen/providers/kubernetes/provider";
 import { HelmProvider } from "../.gen/providers/helm/provider";
-import { Fn, Token } from "cdktf";
+import { Fn } from "cdktf";
 import { EksCluster } from "../.gen/providers/aws/eks-cluster";
 import { DataAwsEksClusterAuth } from "../.gen/providers/aws/data-aws-eks-cluster-auth";
 import { Construct } from "constructs";
@@ -9,22 +9,7 @@ import { Config } from "./config";
 
 /**
  * Provider Manager - Singleton class to manage all providers in the project
- * 
- * This class solves several problems:
- * 1. Ensures we have a single instance of each provider
- * 2. Handles the timing issue with K8s/Helm providers requiring an existing EKS cluster
- * 3. Avoids multiple provider aliases which can cause auth problems
- * 
- * Usage:
- *   // Get AWS provider (available immediately)
- *   const awsProvider = ProviderManager.getAwsProvider(scope);
- *   
- *   // After EKS cluster is created:
- *   ProviderManager.initializeK8sProviders(scope, eksCluster);
- *   
- *   // Then in other modules:
- *   const k8sProvider = ProviderManager.getKubernetesProvider();
- *   const helmProvider = ProviderManager.getHelmProvider();
+ * Ensures a single instance of each provider and handles provider dependencies
  */
 export class ProviderManager {
   // Private static instances
@@ -58,7 +43,6 @@ export class ProviderManager {
     }
     
     // Use the aws_eks_cluster_auth data source to get an authentication token
-    // This is much more reliable than using exec plugin
     this.clusterAuthInstance = new DataAwsEksClusterAuth(scope, "eks-auth", {
       name: eksCluster.name,
     });
@@ -68,16 +52,6 @@ export class ProviderManager {
       host: eksCluster.endpoint,
       clusterCaCertificate: Fn.base64decode(eksCluster.certificateAuthority.get(0).data),
       token: this.clusterAuthInstance.token,
-    //   exec: [{
-    //     apiVersion: "client.authentication.k8s.io/v1beta1",
-    //     command: "aws",
-    //     args: [
-    //       "eks",
-    //       "get-token",
-    //       "--cluster-name",
-    //       eksCluster.name,
-    //     ],
-    //   }],
     });
     
     // Create the Helm provider using the same token
@@ -86,16 +60,6 @@ export class ProviderManager {
         host: eksCluster.endpoint,
         clusterCaCertificate: Fn.base64decode(eksCluster.certificateAuthority.get(0).data),
         token: this.clusterAuthInstance.token,
-        // exec: {
-        //   apiVersion: "client.authentication.k8s.io/v1beta1",
-        //   command: "aws",
-        //   args: [
-        //     "eks",
-        //     "get-token",
-        //     "--cluster-name",
-        //     eksCluster.name,
-        //   ],
-        // },
       }
     });
     

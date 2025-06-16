@@ -2,11 +2,6 @@
  * VPC Module for EKS
  * 
  * This module creates a VPC with public subnets that support both external and internal load balancers.
- * In a production environment, you would typically have:
- * - Public subnets (tagged with kubernetes.io/role/elb=1) for internet-facing resources and external load balancers
- * - Private subnets (tagged with kubernetes.io/role/internal-elb=1) for internal resources and internal load balancers
- * 
- * For this assignment, we're using the same subnets for both roles by applying both tags.
  */
 
 import { Construct } from "constructs";
@@ -29,7 +24,6 @@ export interface VpcModuleConfig {
 }
 
 export interface VpcModuleOutput {
-  // TODO: return proper needed values not the full VPC object
   vpc: Vpc;
   publicSubnets: Subnet[];
   internetGateway?: InternetGateway;
@@ -103,7 +97,6 @@ export class VpcModule extends Construct {
       // Create public subnets across AZs
       for (let i = 0; i < config.azs; i++) {
         // Calculate CIDR for this subnet
-        // This calculation is local and doesn't involve tokens
         const subnetCidr = `${vpcParts[0]}.${vpcParts[1]}.${thirdOctet + i * 16}.0/20`;
         
         // Use literal strings for construct IDs since they must be known at synthesis time
@@ -135,13 +128,11 @@ export class VpcModule extends Construct {
     }
   }
 
+  /**
+   * Returns VPC module outputs
+   * @returns VPC, subnets, internet gateway, and route table
+   */
   public getOutputs(): VpcModuleOutput {
-    // // Add a critical dependency - make Internet Gateway depend on routes
-    // // This ensures routes are deleted before IGW during destruction
-    // if (this.internetGateway) {
-    //   this.internetGateway.addOverride("depends_on", ["aws_route.public-route"]);
-    // }
-    
     return {
       vpc: this.vpc,
       publicSubnets: this.publicSubnets,
