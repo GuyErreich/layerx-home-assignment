@@ -28,16 +28,23 @@ kubernetes-event-exporter:
         stdout: {}
       - name: slack
         slack:
-          # Reference the webhook from the Kubernetes Secret
+          # Reference the token from the Kubernetes Secret
           # This Secret is created by the ExternalSecret in templates/external-secrets.yaml
           # which fetches the value from AWS Secrets Manager
-          webhook:
+          token:
             valueFrom:
               secretKeyRef:
                 name: slack-webhook  # Must match the target.name in ExternalSecret
-                key: url             # Must match the secretKey in ExternalSecret
+                key: token             # Must match the secretKey in ExternalSecret
           channel: "#k8s-events"
-          message: "🔔 *Kubernetes Event Alert*\n*Cluster:* {{ .Cluster }}\n*Type:* {{ .Type }}\n*Reason:* {{ .Reason }}\n*Component:* {{ .Component }}\n*Object:* {{ .InvolvedObject.Kind }}/{{ .InvolvedObject.Name }}\n*Message:* {{ .Message }}"
+          message: "🔔 *Kubernetes Event Alert*\n*Cluster:* {{ .Cluster }}\n*Type:* {{ .Type }}\n*Reason:* {{ .Reason }}"
+          color: "danger"
+          title: "Kubernetes Event Alert"
+          fields:
+            namespace: "{{ .InvolvedObject.Namespace }}"
+            reason: "{{ .Reason }}"
+            component: "{{ .Component }}"
+            object: "{{ .InvolvedObject.Kind }}/{{ .InvolvedObject.Name }}"
     route:
       routes:
       - match:
