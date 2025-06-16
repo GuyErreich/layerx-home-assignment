@@ -5,6 +5,8 @@ import { Release } from "../.gen/providers/helm/release";
 import { EksCluster } from "../.gen/providers/aws/eks-cluster";
 import { ITerraformDependable } from "cdktf";
 import { ProviderManager } from "./providers";
+import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim";
+import { StorageClass } from "../.gen/providers/kubernetes/storage-class";
 
 export interface ArgoCDResources {
   helmProvider: HelmProvider;
@@ -15,6 +17,7 @@ export interface ArgoCDOptions {
   eksCluster: EksCluster;
   dependsOn?: ITerraformDependable[]; // Dependencies to ensure correct deployment order
   eksAdminRoleArn?: string; // IAM role ARN for the Kubernetes/Helm provider authentication
+  storageClass?: StorageClass; // Optional storage class for PVC
 }
 
 export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDResources {
@@ -22,14 +25,54 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
   // This ensures we use the same providers across all modules
   const kubernetesProvider = ProviderManager.getKubernetesProvider();
   const helmProvider = ProviderManager.getHelmProvider();
+  
+  // Use a data source to check if the namespace exists instead of creating it
+  // This is safer than trying to create it directly when it might already exist
+  // This can be imported using the Terraform CLI if needed
+  const argocdNamespace = new Namespace(scope, "argocd-namespace", {
+    metadata: {
+      name: "argocd",
+      labels: {
+        "app.kubernetes.io/part-of": "argocd",
+      },
+    },
+  });
+  
+  // Create a PVC for ArgoCD repo-server directly in this module
+  const argoCdRepoPvc = new PersistentVolumeClaim(scope, "argocd-repo-server-pvc", {
+    dependsOn: [...(options.storageClass ? [options.storageClass] : []), argocdNamespace],
+    metadata: {
+      name: "argocd-repo-server-cache",
+      namespace: "argocd",
+      labels: {
+        "app.kubernetes.io/part-of": "argocd",
+      },
+      // annotations: {
+      //   "volume.beta.kubernetes.io/storage-provisioner": "ebs.csi.aws.com",
+      // },
+    },
+    spec: {
+      accessModes: ["ReadWriteOnce"],
+      resources: {
+        requests: {
+          storage: "5Gi",
+        },
+      },
+      storageClassName: options.storageClass?.metadata.name || "gp2", // Use default if no storage class provided
+    },
+    // Add timeouts to avoid the rate limiter issue
+    timeouts: {
+      create: "15m", // Increase timeout to 15 minutes for creation
+    },
+  });
 
-  // Let the Helm chart create the namespace - more consistent approach
-  // Deploy ArgoCD using Helm - with minimal configuration to avoid timeouts
+  // Deploy ArgoCD using Helm with the namespace already created by our Namespace resource
+  // This ensures proper ordering for PVC creation and namespace availability
   const argocdRelease = new Release(scope, "argocd", {
     provider: helmProvider,
     name: "argocd",
     namespace: "argocd", // Use the dedicated namespace
-    createNamespace: true, // Let Helm create the namespace
+    createNamespace: false, // Don't let Helm create the namespace - we created it explicitly above
     repository: "https://argoproj.github.io/argo-helm",
     chart: "argo-cd",
     version: "7.0.0", // Using a much older, more stable version to avoid compatibility issues
@@ -49,6 +92,11 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
           securityContext: {
             runAsNonRoot: true,
             runAsUser: 999
+          },
+          // Add this to force ArgoCD to use our pre-provisioned PVC
+          // instead of trying to create its own
+          pvcAnnotations: {
+            "helm.sh/resource-policy": "keep"
           }
         },
         
@@ -83,12 +131,12 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
           replicas: 1,
           resources: {
             limits: {
-              cpu: "100m",
-              memory: "128Mi"
+              cpu: "200m",
+              memory: "1Gi" // Increased memory for better stability
             },
             requests: {
-              cpu: "50m",
-              memory: "64Mi"
+              cpu: "100m",
+              memory: "512Mi" // Increased request memory
             }
           }
         },
@@ -97,14 +145,46 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
           replicas: 1,
           resources: {
             limits: {
-              cpu: "100m",
-              memory: "128Mi"
+              cpu: "300m",
+              memory: "1Gi" // Increased memory to handle Helm operations
             },
             requests: {
-              cpu: "50m",
-              memory: "64Mi"
+              cpu: "100m",
+              memory: "512Mi" // Increased request memory
             }
-          }
+          },
+          // Add a volume for Helm repo cache persistence
+          volumes: [
+            {
+              name: "helm-repo-cache",
+              persistentVolumeClaim: {
+                claimName: "argocd-repo-server-cache"
+              }
+            }
+          ],
+          volumeMounts: [
+            {
+              name: "helm-repo-cache",
+              mountPath: "/custom-helm-cache" // Use a unique path that won't conflict
+            }
+          ],
+          env: [
+            {
+              name: "HELM_CACHE_HOME",
+              value: "/custom-helm-cache" // Match the volumeMount path
+            },
+            {
+              name: "HELM_CONFIG_HOME",
+              value: "/custom-helm-cache"
+            },
+            {
+              name: "HELM_DATA_HOME", 
+              value: "/custom-helm-cache"
+            }
+          ],
+          extraArgs: [
+            "--repo-cache-expiration=24h" // Keep repos cached for 24 hours
+          ]
         },
         
         // Disable optional components
@@ -129,7 +209,7 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
     ],
     
     // Add dependencies to ensure proper ordering
-    dependsOn: options.dependsOn || [],
+    dependsOn: [...(options.dependsOn || []), argoCdRepoPvc, argocdNamespace],
   });
 
   return {

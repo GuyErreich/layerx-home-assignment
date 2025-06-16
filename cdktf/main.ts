@@ -8,6 +8,7 @@ import { deployArgoCD, ArgoCDResources } from "./lib/argocd";
 import { deployAwsLoadBalancerController, AwsLoadBalancerControllerResources } from "./lib/aws-load-balancer-controller";
 import { deployExternalSecretsOperator, ExternalSecretsOperatorResources } from "./lib/external-secrets";
 import { createAppIamRoles, AppIamRolesOutput  } from "./lib/app-iam";
+import { createEbsStorageClass } from "./lib/storage";
 import { Config } from "./lib/config";
 import { DataAwsRegion } from "./.gen/providers/aws/data-aws-region";
 import { ProviderManager } from "./lib/providers";
@@ -139,12 +140,19 @@ class LayerxEksStack extends TerraformStack {
     // Create all application IAM roles from configuration
     const appRoles: AppIamRolesOutput = createAppIamRoles(this, eks.cluster);
 
+    // Create EBS storage class for persistent volumes
+    const storageClass = createEbsStorageClass(this);
+
     // Deploy ArgoCD using Helm (after AWS Load Balancer Controller and External Secrets Operator)
     // Also using the shared providers for consistency
     const argocd: ArgoCDResources = deployArgoCD(this, {
       eksCluster: eks.cluster,
-      dependsOn: [awsLbController.awsLoadBalancerControllerRelease, externalSecrets.release] // Ensure ArgoCD is deployed after ALB Controller and External Secrets
-    });
+      dependsOn: [
+        awsLbController.awsLoadBalancerControllerRelease, 
+        externalSecrets.release
+      ],
+      storageClass: storageClass // Pass the storage class to ArgoCD for PVC creation
+    }); // Ensure ArgoCD is deployed after all prerequisites
     
     // Note: We've disabled EKS Auto Mode features (computeConfig, storageConfig, elasticLoadBalancing)
     // and we're using native EKS add-ons instead:

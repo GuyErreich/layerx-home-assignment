@@ -73,6 +73,13 @@ export function createIamRoles(scope: Construct): EksIamRoles {
     role: nodeRole.name,
     policyArn: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
   });
+  
+  // Explicitly add EBS permissions to the node role to ensure it can work with EBS volumes
+  // This complements the EBS CSI Driver role but ensures nodes themselves can interact with EBS
+  new IamRolePolicyAttachment(scope, "ebsNodePolicy", {
+    role: nodeRole.name, 
+    policyArn: "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy",
+  });
 
   // Create IAM role for AWS Load Balancer Controller with a temporary trust policy
   // It will be updated once the EKS cluster is created with proper OIDC trust configuration

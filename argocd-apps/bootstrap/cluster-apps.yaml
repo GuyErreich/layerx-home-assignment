@@ -14,8 +14,7 @@ spec:
     path: argocd-apps
     directory:
       recurse: false
-      jsonnet: {}
-      include: '{event-exporter/application.yaml}'
+      include: "event-exporter.yaml"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
