@@ -6,6 +6,8 @@ secrets-local/
 *~
 .DS_Store
 
+node_modules/
+
 # Terraform / CDKTF files
 cdktf/cdktf.out/
 **/cdktf.out/

@@ -33,8 +33,8 @@ export const Config = {
   nodeGroup: {
     instanceType: "t3.small",  // Upgraded from t3.micro to support more pods per node
     diskSize: 20,
-    minSize: 2,
-    desiredSize: 2,
+    minSize: 4,
+    desiredSize: 4,
     maxSize: 8,
   },
 
