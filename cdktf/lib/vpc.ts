@@ -74,6 +74,7 @@ export class VpcModule extends Construct {
         tags: {
           Name: Fn.join("-", [config.name, "igw"]),
         },
+        dependsOn: [this.vpc],
       });
 
       // Create public route table
@@ -82,13 +83,15 @@ export class VpcModule extends Construct {
         tags: {
           Name: Fn.join("-", [config.name, "public-rtb"]),
         },
+        dependsOn: [this.vpc],
       });
 
       // Add route to Internet Gateway
-      new Route(this, "public-route", {
+      const publicRoute = new Route(this, "public-route", {
         routeTableId: this.publicRouteTable.id,
         destinationCidrBlock: "0.0.0.0/0",
         gatewayId: this.internetGateway.id,
+        dependsOn: [this.publicRouteTable, this.internetGateway],
       });
 
       // Calculate subnet CIDR blocks (assuming /20 subnets in a /16 VPC)
@@ -117,12 +120,14 @@ export class VpcModule extends Construct {
               [Fn.join("", ["kubernetes.io/cluster/", config.eksClusterName])]: "owned"  // Required for EKS to identify the subnet
             })
           },
+          dependsOn: [this.vpc],
         });
 
         // Associate with public route table
-        new RouteTableAssociation(this, `public-rta-${i+1}`, {
+        const rta = new RouteTableAssociation(this, `public-rta-${i+1}`, {
           subnetId: subnet.id,
           routeTableId: this.publicRouteTable.id,
+          dependsOn: [subnet, this.publicRouteTable],
         });
 
         this.publicSubnets.push(subnet);
@@ -131,6 +136,12 @@ export class VpcModule extends Construct {
   }
 
   public getOutputs(): VpcModuleOutput {
+    // // Add a critical dependency - make Internet Gateway depend on routes
+    // // This ensures routes are deleted before IGW during destruction
+    // if (this.internetGateway) {
+    //   this.internetGateway.addOverride("depends_on", ["aws_route.public-route"]);
+    // }
+    
     return {
       vpc: this.vpc,
       publicSubnets: this.publicSubnets,

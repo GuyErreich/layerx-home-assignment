@@ -38,7 +38,7 @@ class LayerxEksStack extends TerraformStack {
       cidr: Config.vpc.cidrBlock,
       azs: Config.vpc.numSubnets,
       publicSubnets: true,
-      eksClusterName: Config.cluster.name // Used for proper tagging
+      eksClusterName: Config.cluster.name, // Used for proper tagging
     });
     
     const vpc: VpcModuleOutput = vpcModule.getOutputs();

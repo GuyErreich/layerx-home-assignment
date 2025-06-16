@@ -64,7 +64,11 @@ export function deployAwsLoadBalancerController(scope: Construct, options: AwsLo
         // Explicitly enable CRD installation in chart values
         installCRDs: true,
         
-        ingressClass: "alb", // Specify the ingress class
+        ingressClass: "alb", // Specify the ingress class for Ingress resources
+        
+        // Enable both ALB and NLB controller modes
+        enableIngressClassResource: true, // Create the IngressClass resource
+        enableServiceController: true,    // Enable the Service controller for LoadBalancer Services (NLB)
         
         // Use IAM roles for service accounts if provided
         serviceAccount: {
@@ -96,6 +100,54 @@ export function deployAwsLoadBalancerController(scope: Construct, options: AwsLo
         podDisruptionBudget: {
           enabled: true,
           maxUnavailable: 1
+        },
+        
+        // Add cleanup hook that will run before deletion to clean up resources with finalizers
+        hooks: {
+          preDelete: {
+            enabled: true,
+            serviceAccount: {
+              create: true,
+              name: "lb-controller-cleanup",
+              annotations: options.serviceAccountRoleArn ? {
+                "eks.amazonaws.com/role-arn": options.serviceAccountRoleArn
+              } : {}
+            },
+            image: {
+              repository: "bitnami/kubectl",
+              tag: "latest"
+            },
+            weight: -10, // Run before anything else in the deletion process
+            annotations: {
+              "helm.sh/hook": "pre-delete",
+              "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded",
+              "helm.sh/hook-weight": "-10"
+            },
+            // Commands to clean up any resources with finalizers
+            command: [
+              "/bin/bash",
+              "-c",
+              `
+              # Find and remove finalizers from targetgroupbindings and ingresses
+              echo "Cleaning up AWS Load Balancer Controller resources and finalizers..."
+              
+              # Remove finalizers from targetgroupbindings
+              kubectl get targetgroupbindings -A -o json | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' | while read ns name; do
+                echo "Removing finalizers from targetgroupbinding $ns/$name"
+                kubectl patch targetgroupbindings $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+              done
+              
+              # Remove finalizers from services with loadbalancer type
+              kubectl get svc -A -o json | jq -r '.items[] | select(.spec.type=="LoadBalancer") | .metadata.namespace + " " + .metadata.name' | while read ns name; do
+                echo "Removing finalizers from service $ns/$name"
+                kubectl patch service $name -n $ns --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+              done
+              
+              # Find and delete any leaked AWS Load Balancer resources in the cloud
+              echo "Done removing finalizers."
+              `
+            ]
+          }
         },
         
         // Avoid using webhooks to simplify initial deployment

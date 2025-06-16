@@ -79,11 +79,15 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
     
     // Configure timeouts and retry behavior - removing atomic to prevent full rollback on timeout
     timeout: 1200, // 20 minutes - increased timeout
-    atomic: false, // Don't roll back on failure - this helps avoid the CRD cleanup issues
-    cleanupOnFail: false, // Don't try to clean up on failure
+    atomic: true,  // Changed to true for better cleanup
+    cleanupOnFail: true, // Changed to true for better cleanup
     wait: true,
     recreatePods: false, // Avoid recreating pods which can cause delays
-    
+    skipCrds: false,
+    replace: false, // Don't replace resources on upgrade
+    disableOpenapiValidation: false,
+    disableWebhooks: false,
+    forceUpdate: true,
     // Values to customize ArgoCD installation with minimal resource usage
     values: [
       JSON.stringify({
@@ -107,7 +111,8 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
           service: {
             type: "LoadBalancer",
             annotations: {
-              // Explicitly specify internet-facing load balancer
+              // Just specify that we want an internet-facing load balancer
+              // The AWS Load Balancer Controller will handle the rest
               "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing"
             }
           },
@@ -118,11 +123,70 @@ export function deployArgoCD(scope: Construct, options: ArgoCDOptions): ArgoCDRe
             limits: {
               cpu: "100m",
               memory: "128Mi"
+            }
+          }
+        },
+        
+        // Add cleanup hooks for proper resource deletion
+        hooks: {
+          preDelete: {
+            enabled: true,
+            serviceAccount: {
+              create: true,
+              name: "argocd-cleanup"
+            },
+            image: {
+              repository: "bitnami/kubectl",
+              tag: "latest"
+            },
+            weight: -10, // Run early in the deletion process
+            annotations: {
+              "helm.sh/hook": "pre-delete",
+              "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded",
+              "helm.sh/hook-weight": "-10"
             },
             requests: {
               cpu: "50m",
               memory: "64Mi"
-            }
+            },
+            // Add commands to clean up any resources with finalizers
+            command: [
+              "/bin/bash",
+              "-c",
+              `
+              # Find and remove finalizers from ArgoCD resources
+              echo "Cleaning up ArgoCD resources and finalizers..."
+              
+              # First remove finalizers from the server service to allow proper load balancer cleanup
+              echo "Removing finalizers from argocd-server service"
+              kubectl patch svc argocd-server -n argocd --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+              
+              # Wait a moment for the service finalizer removal to take effect
+              sleep 5
+              
+              # Check if the service is deleted, if not force delete it
+              if kubectl get svc argocd-server -n argocd >/dev/null 2>&1; then
+                echo "Force deleting argocd-server service"
+                kubectl delete svc argocd-server -n argocd --grace-period=0 --force || true
+              fi
+              
+              # Remove finalizers from any other ArgoCD resources
+              for resource in applications applicationsets appprojects; do
+                kubectl get $resource -n argocd -o json 2>/dev/null | jq -r '.items[] | .metadata.name' | while read name; do
+                  echo "Removing finalizers from $resource $name"
+                  kubectl patch $resource $name -n argocd --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+                done
+              done
+              
+              # Remove any potential stuck secrets
+              kubectl get secrets -n argocd -o json | jq -r '.items[] | select(.metadata.finalizers != null) | .metadata.name' | while read name; do
+                echo "Removing finalizers from secret $name"
+                kubectl patch secret $name -n argocd --type=json -p='[{"op": "remove", "path": "/metadata/finalizers"}]' --overwrite || true
+              done
+              
+              echo "Done removing ArgoCD finalizers."
+              `
+            ]
           }
         },
         
