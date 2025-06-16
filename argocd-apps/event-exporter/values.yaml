@@ -46,3 +46,15 @@ kubernetes-event-exporter:
             - kind: Pod
               reason: Failed
           receiver: slack
+        - match:
+            - kind: Pod
+              reason: FailedScheduling
+          receiver: slack
+        - match:
+            - kind: Pod
+              reason: BackOff
+          receiver: slack
+        - match:
+            - kind: Pod
+              reason: CrashLoopBackOff
+          receiver: slack
